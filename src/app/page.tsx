@@ -33,6 +33,32 @@ type Message = {
   masterId?: string;
 };
 
+type SavedConversation = {
+  id: string;
+  title: string;
+  masterIds: string[];
+  messages: Message[];
+  updatedAt: number;
+};
+
+type ConnectedWallet = {
+  label: string;
+  address: string;
+  kind: "evm" | "solana";
+};
+
+declare global {
+  interface Window {
+    ethereum?: {
+      request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+    };
+    solana?: {
+      isPhantom?: boolean;
+      connect: () => Promise<{ publicKey: { toString: () => string } }>;
+    };
+  }
+}
+
 type Master = {
   id: string;
   name: string;
@@ -127,7 +153,7 @@ export default function Home() {
   const [lang, setLang] = useState<"zh" | "en">("zh");
   const [view, setView] = useState<"home" | "chat" | "profile">("home");
   const [walletOpen, setWalletOpen] = useState(false);
-  const [wallet, setWallet] = useState("");
+  const [wallet, setWallet] = useState<ConnectedWallet | null>(null);
   const [question, setQuestion] = useState("");
   const [toast, setToast] = useState("");
 
@@ -140,6 +166,20 @@ export default function Home() {
     const timer = window.setTimeout(() => setToast(""), 2600);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("oracle-capital-wallet");
+    const timer = window.setTimeout(() => {
+      if (saved) {
+        try {
+          setWallet(JSON.parse(saved) as ConnectedWallet);
+        } catch {
+          window.localStorage.removeItem("oracle-capital-wallet");
+        }
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const t = translations[lang];
   const selectedMasters = masters.filter((master) => selected.includes(master.id));
@@ -169,7 +209,7 @@ export default function Home() {
             </button>
             <button onClick={() => setToast("暂无新通知，AI 方案仍需你确认后执行")} className="icon-btn hidden sm:grid" aria-label="Notifications"><Bell size={17} /></button>
             <button onClick={() => setWalletOpen(true)} className="primary-btn ml-1">
-              <Wallet size={16} /> <span className="hidden sm:inline">{wallet || t.connect}</span>
+              <Wallet size={16} /> <span className="hidden sm:inline">{wallet ? `${wallet.label} ${shortAddress(wallet.address)}` : t.connect}</span>
             </button>
             <button onClick={() => setView("profile")} className="icon-btn"><UserRound size={17} /></button>
           </div>
@@ -188,7 +228,7 @@ export default function Home() {
       )}
       {view === "chat" && <ChatView selectedMasters={selectedMasters} initialQuestion={question} onBack={() => setView("home")} wallet={wallet} onNeedWallet={() => setWalletOpen(true)} notify={setToast} />}
       {view === "profile" && <ProfileView />}
-      {walletOpen && <WalletModal onClose={() => setWalletOpen(false)} onConnect={(name) => { setWallet(name); setWalletOpen(false); setToast(`${name} 已模拟连接`); }} />}
+      {walletOpen && <WalletModal connected={wallet} onClose={() => setWalletOpen(false)} onConnect={(value) => { setWallet(value); window.localStorage.setItem("oracle-capital-wallet", JSON.stringify(value)); setWalletOpen(false); setToast(`${value.label} 已连接`); }} onDisconnect={() => { setWallet(null); window.localStorage.removeItem("oracle-capital-wallet"); setWalletOpen(false); setToast("钱包已断开"); }} notify={setToast} />}
       {toast && <div className="fixed bottom-5 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-[var(--ink)] px-5 py-3 text-xs text-[var(--bg)] shadow-xl">{toast}</div>}
     </main>
   );
@@ -297,6 +337,10 @@ function HomeView({
   );
 }
 
+function shortAddress(address: string) {
+  return address.length > 12 ? `${address.slice(0, 6)}…${address.slice(-4)}` : address;
+}
+
 function ChatView({
   selectedMasters,
   initialQuestion,
@@ -308,7 +352,7 @@ function ChatView({
   selectedMasters: Master[];
   initialQuestion: string;
   onBack: () => void;
-  wallet: string;
+  wallet: ConnectedWallet | null;
   onNeedWallet: () => void;
   notify: (message: string) => void;
 }) {
@@ -324,6 +368,65 @@ function ChatView({
   const [messages, setMessages] = useState<Message[]>([
     { id: "welcome", role: "system", content: "投资委员会已就席。发送问题后，所选大师会从不同框架给出意见，再形成综合方案。" },
   ]);
+  const [conversationId, setConversationId] = useState("");
+  const [savedConversations, setSavedConversations] = useState<SavedConversation[]>([]);
+  const [storageReady, setStorageReady] = useState(false);
+  const activeMasterIds = activeMasters.map((master) => master.id).join(",");
+
+  useEffect(() => {
+    const raw = window.localStorage.getItem("oracle-capital-conversations");
+    const timer = window.setTimeout(() => {
+      if (raw) {
+        try {
+          setSavedConversations(JSON.parse(raw) as SavedConversation[]);
+        } catch {
+          window.localStorage.removeItem("oracle-capital-conversations");
+        }
+      }
+      setConversationId(crypto.randomUUID());
+      setStorageReady(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!storageReady || !conversationId || messages.length <= 1) return;
+    const firstQuestion = messages.find((message) => message.role === "user")?.content;
+    if (!firstQuestion) return;
+    const timer = window.setTimeout(() => {
+      setSavedConversations((current) => {
+        const nextConversation: SavedConversation = {
+          id: conversationId,
+          title: firstQuestion.slice(0, 22),
+          masterIds: activeMasterIds.split(","),
+          messages,
+          updatedAt: Date.now(),
+        };
+        const next = [nextConversation, ...current.filter((item) => item.id !== conversationId)]
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .slice(0, 20);
+        window.localStorage.setItem("oracle-capital-conversations", JSON.stringify(next));
+        return next;
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [activeMasterIds, conversationId, messages, storageReady]);
+
+  const newConversation = () => {
+    setConversationId(crypto.randomUUID());
+    setMessages([{ id: crypto.randomUUID(), role: "system", content: "新对话已建立，请输入你的投资问题。" }]);
+    setShowPlan(false);
+    setPreview(false);
+    setInput("");
+  };
+
+  const loadConversation = (conversation: SavedConversation) => {
+    setConversationId(conversation.id);
+    setMessages(conversation.messages);
+    setShowPlan(conversation.messages.some((message) => message.role === "master"));
+    setPreview(false);
+    notify(`已恢复：${conversation.title}`);
+  };
 
   const sendMessage = async (event?: FormEvent) => {
     event?.preventDefault();
@@ -381,10 +484,14 @@ function ChatView({
   return (
     <div className="mx-auto flex min-h-[calc(100vh-80px)] max-w-[1200px]">
       <aside className="hidden w-64 border-r border-[var(--line)] p-5 lg:block">
-        <button onClick={() => { setMessages([{ id: crypto.randomUUID(), role: "system", content: "新对话已建立，请输入你的投资问题。" }]); setShowPlan(false); setPreview(false); }} className="secondary-btn w-full"><Plus size={15} /> 新建对话</button>
+        <button onClick={newConversation} className="secondary-btn w-full"><Plus size={15} /> 新建对话</button>
         <div className="mt-8 text-[10px] font-semibold tracking-[0.18em] text-[var(--muted)]">最近对话</div>
-        <button onClick={() => setInput("请评估 ETH 长期配置方案")} className="mt-3 w-full rounded-lg bg-[var(--wash)] p-3 text-left text-xs">ETH 长期配置委员会</button>
-        <button onClick={() => setInput("请分析稳定币 DeFi 收益策略")} className="mt-2 w-full p-3 text-left text-xs text-[var(--muted)]">稳定币收益策略</button>
+        {savedConversations.length ? savedConversations.slice(0, 8).map((conversation) => (
+          <button key={conversation.id} onClick={() => loadConversation(conversation)} className={`mt-2 w-full rounded-lg p-3 text-left text-xs ${conversation.id === conversationId ? "bg-[var(--wash)]" : "text-[var(--muted)] hover:bg-[var(--panel-soft)]"}`}>
+            <span className="block truncate">{conversation.title}</span>
+            <span className="mt-1 block text-[9px] opacity-60">{new Date(conversation.updatedAt).toLocaleString("zh-CN")}</span>
+          </button>
+        )) : <p className="mt-3 text-xs leading-5 text-[var(--muted)]">发送第一条消息后，对话会自动保存在此浏览器。</p>}
       </aside>
       <section className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-4 md:px-8">
@@ -408,7 +515,7 @@ function ChatView({
           {messages.map((message) => {
             if (message.role === "user") return <div key={message.id} className="user-message">{message.content}</div>;
             if (message.role === "system") return <div key={message.id} className="rounded-xl border border-[var(--line)] bg-[var(--panel-soft)] p-4 text-sm leading-7"><div className="mb-2 section-label"><Sparkles size={13} /> 委员会综合</div>{message.content}</div>;
-            const master = activeMasters.find((item) => item.id === message.masterId) ?? activeMasters[0];
+            const master = masters.find((item) => item.id === message.masterId) ?? activeMasters[0];
             return (
               <div key={message.id} className="flex gap-3">
                 <Avatar master={master} size="md" />
@@ -466,7 +573,7 @@ function ChatView({
   );
 }
 
-function TradePreview({ onBack, wallet, onNeedWallet, notify }: { onBack: () => void; wallet: string; onNeedWallet: () => void; notify: (message: string) => void }) {
+function TradePreview({ onBack, wallet, onNeedWallet, notify }: { onBack: () => void; wallet: ConnectedWallet | null; onNeedWallet: () => void; notify: (message: string) => void }) {
   const [accepted, setAccepted] = useState(false);
   const [status, setStatus] = useState<"ready" | "signing" | "done">("ready");
   const execute = () => {
@@ -496,7 +603,7 @@ function TradePreview({ onBack, wallet, onNeedWallet, notify }: { onBack: () => 
       </label>
       <button disabled={!accepted || status !== "ready"} onClick={execute} className="primary-btn mt-5 w-full">
         {status === "signing" ? <LoaderCircle className="animate-spin" size={16} /> : <Wallet size={16} />}
-        {status === "signing" ? "等待模拟签名..." : status === "done" ? "模拟交易完成" : wallet ? `使用 ${wallet} 模拟签名` : "连接钱包后模拟签名"}
+        {status === "signing" ? "等待模拟签名..." : status === "done" ? "模拟交易完成" : wallet ? `使用 ${wallet.label} 模拟签名` : "连接钱包后模拟签名"}
       </button>
     </div>
   );
@@ -557,21 +664,65 @@ function ProfileView() {
   );
 }
 
-function WalletModal({ onClose, onConnect }: { onClose: () => void; onConnect: (wallet: string) => void }) {
+function WalletModal({
+  connected,
+  onClose,
+  onConnect,
+  onDisconnect,
+  notify,
+}: {
+  connected: ConnectedWallet | null;
+  onClose: () => void;
+  onConnect: (wallet: ConnectedWallet) => void;
+  onDisconnect: () => void;
+  notify: (message: string) => void;
+}) {
   const [connecting, setConnecting] = useState("");
-  const connect = (wallet: string) => {
-    setConnecting(wallet);
-    window.setTimeout(() => onConnect(wallet), 700);
+  const connectEvm = async () => {
+    if (!window.ethereum) {
+      notify("未检测到 EVM 钱包，请安装 MetaMask 或兼容钱包");
+      return;
+    }
+    setConnecting("MetaMask");
+    try {
+      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" }) as string[];
+      if (!accounts[0]) throw new Error("No account returned");
+      onConnect({ label: "EVM", address: accounts[0], kind: "evm" });
+    } catch {
+      notify("钱包连接被取消或失败");
+      setConnecting("");
+    }
+  };
+  const connectPhantom = async () => {
+    if (!window.solana?.isPhantom) {
+      notify("未检测到 Phantom 钱包，请先安装浏览器扩展");
+      return;
+    }
+    setConnecting("Phantom");
+    try {
+      const response = await window.solana.connect();
+      onConnect({ label: "Phantom", address: response.publicKey.toString(), kind: "solana" });
+    } catch {
+      notify("Phantom 连接被取消或失败");
+      setConnecting("");
+    }
   };
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4 backdrop-blur-sm" onMouseDown={onClose}>
       <div className="w-full max-w-md rounded-2xl bg-[var(--panel)] p-6 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between"><div><div className="section-label">Privy 登录</div><h2 className="mt-2 font-serif text-2xl">连接到追光者</h2></div><button onClick={onClose} className="icon-btn"><X size={17} /></button></div>
-        <p className="mt-3 text-xs leading-5 text-[var(--muted)]">黑客松版本仅模拟连接，不读取私钥、不请求链上授权，也不会发起真实交易。</p>
-        <div className="mt-6 space-y-2">
-          {["MetaMask", "WalletConnect", "Phantom", "邮箱登录"].map((wallet) => <button disabled={Boolean(connecting)} onClick={() => connect(wallet)} key={wallet} className="topic-row"><Wallet size={17} /><span className="flex-1 text-left">{wallet}</span>{connecting === wallet ? <LoaderCircle className="animate-spin" size={15} /> : <ArrowRight size={15} />}</button>)}
-        </div>
-        <div className="mt-5 flex items-start gap-2 text-[10px] leading-4 text-[var(--muted)]"><ShieldCheck size={14} className="mt-0.5 shrink-0" />我们不会托管你的私钥。演示版本使用模拟合规检查结果。</div>
+        <div className="flex items-center justify-between"><div><div className="section-label">钱包登录</div><h2 className="mt-2 font-serif text-2xl">{connected ? "钱包已连接" : "连接到追光者"}</h2></div><button onClick={onClose} className="icon-btn"><X size={17} /></button></div>
+        <p className="mt-3 text-xs leading-5 text-[var(--muted)]">连接仅用于读取公开地址。本站不会接触私钥，任何真实交易仍需在钱包中单独确认。</p>
+        {connected ? (
+          <div className="mt-6">
+            <div className="rounded-xl bg-[var(--panel-soft)] p-4"><div className="text-xs text-[var(--muted)]">{connected.label}</div><div className="mt-2 font-mono text-sm">{shortAddress(connected.address)}</div></div>
+            <button onClick={onDisconnect} className="secondary-btn mt-4 w-full">断开钱包</button>
+          </div>
+        ) : <div className="mt-6 space-y-2">
+          <button disabled={Boolean(connecting)} onClick={connectEvm} className="topic-row"><Wallet size={17} /><span className="flex-1 text-left">MetaMask / EVM 钱包</span>{connecting === "MetaMask" ? <LoaderCircle className="animate-spin" size={15} /> : <ArrowRight size={15} />}</button>
+          <button disabled={Boolean(connecting)} onClick={connectPhantom} className="topic-row"><Wallet size={17} /><span className="flex-1 text-left">Phantom / Solana</span>{connecting === "Phantom" ? <LoaderCircle className="animate-spin" size={15} /> : <ArrowRight size={15} />}</button>
+          <button onClick={() => notify("WalletConnect 需要项目 ID，下一阶段接入")} className="topic-row"><Wallet size={17} /><span className="flex-1 text-left">WalletConnect</span><ArrowRight size={15} /></button>
+        </div>}
+        <div className="mt-5 flex items-start gap-2 text-[10px] leading-4 text-[var(--muted)]"><ShieldCheck size={14} className="mt-0.5 shrink-0" />连接请求由钱包扩展处理，追光者只保存公开地址。</div>
       </div>
     </div>
   );

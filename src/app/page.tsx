@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
+  ArrowLeft,
   ArrowRight,
   BarChart3,
   Bell,
@@ -9,6 +10,7 @@ import {
   CircleDollarSign,
   Globe2,
   History,
+  LoaderCircle,
   Mic,
   Moon,
   Pause,
@@ -22,6 +24,13 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+
+type Message = {
+  id: string;
+  role: "user" | "master" | "system";
+  content: string;
+  masterId?: string;
+};
 
 type Master = {
   id: string;
@@ -117,10 +126,19 @@ export default function Home() {
   const [lang, setLang] = useState<"zh" | "en">("zh");
   const [view, setView] = useState<"home" | "chat" | "profile">("home");
   const [walletOpen, setWalletOpen] = useState(false);
+  const [wallet, setWallet] = useState("");
+  const [question, setQuestion] = useState("");
+  const [toast, setToast] = useState("");
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(""), 2600);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   const t = translations[lang];
   const selectedMasters = masters.filter((master) => selected.includes(master.id));
@@ -137,9 +155,9 @@ export default function Home() {
         <div className="mx-auto flex h-20 max-w-[1440px] items-center justify-between px-5 lg:px-10">
           <button onClick={() => setView("home")}><BrandMark /></button>
           <nav className="hidden items-center gap-9 text-sm text-[var(--muted)] md:flex">
-            <button className="hover:text-[var(--ink)]">{t.navMarket}</button>
+            <button onClick={() => { setView("home"); window.setTimeout(() => document.querySelector("#topics")?.scrollIntoView(), 0); }} className="hover:text-[var(--ink)]">{t.navMarket}</button>
             <button onClick={() => setView("home")} className="text-[var(--ink)]">{t.navMasters}</button>
-            <button className="hover:text-[var(--ink)]">{t.navRank}</button>
+            <button onClick={() => { setView("home"); window.setTimeout(() => document.querySelector("#rankings")?.scrollIntoView(), 0); }} className="hover:text-[var(--ink)]">{t.navRank}</button>
           </nav>
           <div className="flex items-center gap-2">
             <button className="icon-btn" onClick={() => setLang(lang === "zh" ? "en" : "zh")} aria-label="Change language">
@@ -148,9 +166,9 @@ export default function Home() {
             <button className="icon-btn" onClick={() => setTheme(theme === "light" ? "dark" : "light")} aria-label="Toggle theme">
               {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
             </button>
-            <button className="icon-btn hidden sm:grid" aria-label="Notifications"><Bell size={17} /></button>
+            <button onClick={() => setToast("暂无新通知，AI 方案仍需你确认后执行")} className="icon-btn hidden sm:grid" aria-label="Notifications"><Bell size={17} /></button>
             <button onClick={() => setWalletOpen(true)} className="primary-btn ml-1">
-              <Wallet size={16} /> <span className="hidden sm:inline">{t.connect}</span>
+              <Wallet size={16} /> <span className="hidden sm:inline">{wallet || t.connect}</span>
             </button>
             <button onClick={() => setView("profile")} className="icon-btn"><UserRound size={17} /></button>
           </div>
@@ -164,11 +182,13 @@ export default function Home() {
           selectedMasters={selectedMasters}
           toggleMaster={toggleMaster}
           onStart={() => selected.length && setView("chat")}
+          onTopic={(topic) => { setQuestion(topic); setView("chat"); }}
         />
       )}
-      {view === "chat" && <ChatView selectedMasters={selectedMasters} onBack={() => setView("home")} />}
+      {view === "chat" && <ChatView selectedMasters={selectedMasters} initialQuestion={question} onBack={() => setView("home")} wallet={wallet} onNeedWallet={() => setWalletOpen(true)} notify={setToast} />}
       {view === "profile" && <ProfileView />}
-      {walletOpen && <WalletModal onClose={() => setWalletOpen(false)} />}
+      {walletOpen && <WalletModal onClose={() => setWalletOpen(false)} onConnect={(name) => { setWallet(name); setWalletOpen(false); setToast(`${name} 已模拟连接`); }} />}
+      {toast && <div className="fixed bottom-5 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-[var(--ink)] px-5 py-3 text-xs text-[var(--bg)] shadow-xl">{toast}</div>}
     </main>
   );
 }
@@ -179,12 +199,14 @@ function HomeView({
   selectedMasters,
   toggleMaster,
   onStart,
+  onTopic,
 }: {
   t: typeof translations.zh;
   selected: string[];
   selectedMasters: Master[];
   toggleMaster: (id: string) => void;
   onStart: () => void;
+  onTopic: (topic: string) => void;
 }) {
   return (
     <>
@@ -235,13 +257,13 @@ function HomeView({
         </div>
       </section>
 
-      <section className="border-t border-[var(--line)] bg-[var(--panel-soft)]">
+      <section id="topics" className="scroll-mt-24 border-t border-[var(--line)] bg-[var(--panel-soft)]">
         <div className="mx-auto grid max-w-[1200px] gap-12 px-5 py-16 lg:grid-cols-2 lg:px-10">
           <div>
             <div className="section-label"><Sparkles size={14} /> {t.topics}</div>
             <div className="mt-5 space-y-3">
               {["ETH 突破关键阻力位，现在适合增加仓位吗？", "稳定币收益率回升，如何配置 Aave 存款？", "宏观流动性变化将如何影响加密市场？"].map((topic, index) => (
-                <button key={topic} className="topic-row">
+                <button key={topic} onClick={() => onTopic(topic)} className="topic-row">
                   <span className="font-serif text-lg text-[var(--muted)]">0{index + 1}</span>
                   <span className="flex-1 text-left text-sm">{topic}</span>
                   <ArrowRight size={15} />
@@ -249,7 +271,7 @@ function HomeView({
               ))}
             </div>
           </div>
-          <div>
+          <div id="rankings" className="scroll-mt-24">
             <div className="section-label"><BarChart3 size={14} /> {t.ranking}</div>
             <div className="mt-5 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--panel)]">
               {masters.slice(0, 3).map((master, index) => (
@@ -274,29 +296,107 @@ function HomeView({
   );
 }
 
-function ChatView({ selectedMasters, onBack }: { selectedMasters: Master[]; onBack: () => void }) {
+function ChatView({
+  selectedMasters,
+  initialQuestion,
+  onBack,
+  wallet,
+  onNeedWallet,
+  notify,
+}: {
+  selectedMasters: Master[];
+  initialQuestion: string;
+  onBack: () => void;
+  wallet: string;
+  onNeedWallet: () => void;
+  notify: (message: string) => void;
+}) {
   const activeMasters = selectedMasters.length ? selectedMasters : masters.slice(0, 3);
   const [paused, setPaused] = useState(false);
-  const [showPlan, setShowPlan] = useState(true);
-  const [input, setInput] = useState("");
+  const [showPlan, setShowPlan] = useState(false);
+  const [preview, setPreview] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [input, setInput] = useState(initialQuestion);
+  const [loading, setLoading] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [allocation, setAllocation] = useState({ spot: 60, defi: 30, reserve: 10 });
+  const [messages, setMessages] = useState<Message[]>([
+    { id: "welcome", role: "system", content: "投资委员会已就席。发送问题后，所选大师会从不同框架给出意见，再形成综合方案。" },
+  ]);
+
+  const sendMessage = async (event?: FormEvent) => {
+    event?.preventDefault();
+    const prompt = input.trim();
+    if (!prompt || loading || paused) return;
+    const history = messages.filter((message) => message.role !== "system").slice(-8);
+    setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", content: prompt }]);
+    setInput("");
+    setLoading(true);
+    setShowPlan(false);
+    setPreview(false);
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: prompt,
+          masters: activeMasters.map(({ id, name, school, quote, risk }) => ({ id, name, school, quote, risk })),
+          history,
+        }),
+      });
+      if (!response.ok) throw new Error("DeepSeek unavailable");
+      const data = await response.json() as {
+        replies: { masterId: string; content: string }[];
+        synthesis: string;
+      };
+      setMessages((current) => [
+        ...current,
+        ...data.replies.map((reply) => ({ id: crypto.randomUUID(), role: "master" as const, masterId: reply.masterId, content: reply.content })),
+        { id: crypto.randomUUID(), role: "system", content: data.synthesis },
+      ]);
+      setShowPlan(true);
+    } catch {
+      const fallback = activeMasters.map((master, index) => ({
+        id: crypto.randomUUID(),
+        role: "master" as const,
+        masterId: master.id,
+        content: index === 0
+          ? `从${master.school}角度，我会先确认本金安全、协议现金流和最大回撤。对于“${prompt}”，建议先小仓位验证，不追逐未经验证的高收益。`
+          : `${master.quote} 我的判断框架与前一位不同：当前信息不足以支持重仓，应先补充持有周期、可承受回撤和链上协议风险。`,
+      }));
+      setMessages((current) => [
+        ...current,
+        ...fallback,
+        { id: crypto.randomUUID(), role: "system", content: "综合结论：分批建仓、限制单协议敞口、保留机动资金，并在交易前核对链、币种、滑点与授权额度。当前为静态演示回复。" },
+      ]);
+      setShowPlan(true);
+      notify("DeepSeek 暂未响应，已切换演示回复");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="mx-auto flex min-h-[calc(100vh-80px)] max-w-[1200px]">
       <aside className="hidden w-64 border-r border-[var(--line)] p-5 lg:block">
-        <button onClick={onBack} className="secondary-btn w-full"><Plus size={15} /> 新建对话</button>
+        <button onClick={() => { setMessages([{ id: crypto.randomUUID(), role: "system", content: "新对话已建立，请输入你的投资问题。" }]); setShowPlan(false); setPreview(false); }} className="secondary-btn w-full"><Plus size={15} /> 新建对话</button>
         <div className="mt-8 text-[10px] font-semibold tracking-[0.18em] text-[var(--muted)]">最近对话</div>
-        <button className="mt-3 w-full rounded-lg bg-[var(--wash)] p-3 text-left text-xs">ETH 长期配置委员会</button>
-        <button className="mt-2 w-full p-3 text-left text-xs text-[var(--muted)]">稳定币收益策略</button>
+        <button onClick={() => setInput("请评估 ETH 长期配置方案")} className="mt-3 w-full rounded-lg bg-[var(--wash)] p-3 text-left text-xs">ETH 长期配置委员会</button>
+        <button onClick={() => setInput("请分析稳定币 DeFi 收益策略")} className="mt-2 w-full p-3 text-left text-xs text-[var(--muted)]">稳定币收益策略</button>
       </aside>
       <section className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-4 md:px-8">
-          <div>
+          <div className="flex items-center gap-3">
+            <button onClick={onBack} className="icon-btn lg:hidden" aria-label="返回大师选择"><ArrowLeft size={16} /></button>
+            <div>
             <div className="flex items-center gap-2">
               <div className="flex -space-x-2">{activeMasters.map((m) => <Avatar key={m.id} master={m} size="sm" />)}</div>
               <span className="font-serif text-lg">投资委员会</span>
-              <span className="status-dot">讨论中</span>
+              <span className="status-dot">{loading ? "思考中" : "DeepSeek 在线"}</span>
             </div>
-            <div className="mt-1 text-[10px] text-[var(--muted)]">第 2 阶段 · 交叉质询 · 3 位成员</div>
+            <div className="mt-1 text-[10px] text-[var(--muted)]">AI 思想框架模拟 · {activeMasters.length} 位成员 · 用户确认后才可执行</div>
+            </div>
           </div>
           <button onClick={() => setPaused(!paused)} className="secondary-btn">
             {paused ? <Play size={15} /> : <Pause size={15} />} {paused ? "继续" : "暂停"}
@@ -304,25 +404,20 @@ function ChatView({ selectedMasters, onBack }: { selectedMasters: Master[]; onBa
         </div>
 
         <div className="mx-auto w-full max-w-3xl flex-1 space-y-7 px-4 py-8 md:px-8">
-          <div className="user-message">请评估用 5 ETH 构建一个兼顾长期增长和 DeFi 收益的组合。</div>
-          {activeMasters.map((master, index) => (
-            <div key={master.id} className={`flex gap-3 ${paused && index === activeMasters.length - 1 ? "opacity-50" : ""}`}>
-              <Avatar master={master} size="md" />
-              <div>
-                <div className="mb-2 flex items-center gap-2">
-                  <span className="text-sm font-semibold">{master.name}</span>
-                  <span className="text-[10px] text-[var(--muted)]">{master.school}</span>
-                </div>
-                <p className="text-sm leading-7 text-[var(--ink-soft)]">
-                  {index === 0 && "我更关注本金安全与可持续现金流。建议把核心仓位留在 ETH，并将一小部分部署到经过验证的借贷协议，避免追逐短期高 APY。"}
-                  {index === 1 && "我赞同核心仓位，但必须反过来问：如果 ETH 下跌 35%，这套组合是否仍能让你安稳持有？任何借贷都应保留足够健康因子。"}
-                  {index === 2 && "增长部分可以更主动。链上活跃度正在改善，我会给现货更高权重，同时用少量资金参与稳定币收益，保持随时调整的流动性。"}
-                </p>
+          {messages.map((message) => {
+            if (message.role === "user") return <div key={message.id} className="user-message">{message.content}</div>;
+            if (message.role === "system") return <div key={message.id} className="rounded-xl border border-[var(--line)] bg-[var(--panel-soft)] p-4 text-sm leading-7"><div className="mb-2 section-label"><Sparkles size={13} /> 委员会综合</div>{message.content}</div>;
+            const master = activeMasters.find((item) => item.id === message.masterId) ?? activeMasters[0];
+            return (
+              <div key={message.id} className="flex gap-3">
+                <Avatar master={master} size="md" />
+                <div><div className="mb-2 flex items-center gap-2"><span className="text-sm font-semibold">{master.name}</span><span className="text-[10px] text-[var(--muted)]">{master.school}</span></div><p className="whitespace-pre-wrap text-sm leading-7 text-[var(--ink-soft)]">{message.content}</p></div>
               </div>
-            </div>
-          ))}
+            );
+          })}
+          {loading && <div className="flex items-center gap-3 text-sm text-[var(--muted)]"><LoaderCircle className="animate-spin" size={18} />DeepSeek 正在组织不同大师的观点...</div>}
 
-          {showPlan && (
+          {showPlan && !preview && (
             <div className="plan-card">
               <div className="flex items-start justify-between">
                 <div>
@@ -331,43 +426,59 @@ function ChatView({ selectedMasters, onBack }: { selectedMasters: Master[]; onBa
                 </div>
                 <span className="rounded-full bg-[var(--wash)] px-3 py-1 text-xs text-[var(--green)]">置信度 84%</span>
               </div>
-              <div className="mt-6 grid grid-cols-3 gap-2">
-                {[["ETH 现货", "60%", "3 ETH"], ["Aave 存款", "30%", "1.5 ETH"], ["机动资金", "10%", "0.5 ETH"]].map((item) => (
+              {editing ? <div className="mt-6 space-y-4">
+                {([["spot", "ETH 现货"], ["defi", "Aave 存款"], ["reserve", "机动资金"]] as const).map(([key, label]) => <label key={key} className="block text-xs"><span className="mb-2 flex justify-between"><span>{label}</span><strong>{allocation[key]}%</strong></span><input className="w-full accent-[var(--green)]" type="range" min="0" max="100" value={allocation[key]} onChange={(event) => setAllocation((current) => ({ ...current, [key]: Number(event.target.value) }))} /></label>)}
+                <div className={`text-xs ${allocation.spot + allocation.defi + allocation.reserve === 100 ? "text-[var(--positive)]" : "text-red-500"}`}>当前合计 {allocation.spot + allocation.defi + allocation.reserve}%（必须为 100%）</div>
+              </div> : <div className="mt-6 grid grid-cols-3 gap-2">
+                {[["ETH 现货", `${allocation.spot}%`, `${allocation.spot * 0.05} ETH`], ["Aave 存款", `${allocation.defi}%`, `${allocation.defi * 0.05} ETH`], ["机动资金", `${allocation.reserve}%`, `${allocation.reserve * 0.05} ETH`]].map((item) => (
                   <div key={item[0]} className="rounded-lg bg-[var(--panel-soft)] p-3">
                     <div className="text-[10px] text-[var(--muted)]">{item[0]}</div>
                     <div className="mt-1 font-serif text-xl">{item[1]}</div>
                     <div className="text-[10px] text-[var(--muted)]">{item[2]}</div>
                   </div>
                 ))}
-              </div>
+              </div>}
               <div className="mt-5 flex items-center gap-2 text-xs text-[var(--muted)]">
                 <ShieldCheck size={15} className="text-[var(--positive)]" /> 预计年化 8.2% · 最大模拟回撤 18.6% · 风险等级：均衡
               </div>
               <div className="mt-6 flex flex-col gap-2 sm:flex-row">
-                <button className="primary-btn flex-1" onClick={() => setShowPlan(false)}><CircleDollarSign size={16} /> 预览并执行</button>
-                <button className="secondary-btn flex-1">编辑参数</button>
+                <button disabled={allocation.spot + allocation.defi + allocation.reserve !== 100} className="primary-btn flex-1" onClick={() => editing ? setEditing(false) : setPreview(true)}><CircleDollarSign size={16} /> {editing ? "保存参数" : "预览模拟交易"}</button>
+                <button onClick={() => setEditing(!editing)} className="secondary-btn flex-1">{editing ? "取消编辑" : "编辑参数"}</button>
               </div>
             </div>
           )}
 
-          {!showPlan && <TradePreview onBack={() => setShowPlan(true)} />}
+          {preview && <TradePreview wallet={wallet} onNeedWallet={onNeedWallet} notify={notify} onBack={() => setPreview(false)} />}
           {paused && <div className="rounded-lg border border-[var(--gold)]/40 bg-[var(--gold)]/5 p-4 text-center text-xs">委员会已暂停。你可以修改议题，或从当前上下文继续。</div>}
         </div>
 
-        <div className="sticky bottom-0 border-t border-[var(--line)] bg-[var(--bg)]/95 p-4 backdrop-blur">
+        <form onSubmit={sendMessage} className="sticky bottom-0 border-t border-[var(--line)] bg-[var(--bg)]/95 p-4 backdrop-blur">
           <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-2 shadow-sm">
-            <button className="icon-btn"><Mic size={18} /></button>
-            <textarea value={input} onChange={(e) => setInput(e.target.value)} rows={1} placeholder="询问大师，或输入新的讨论方向..." className="min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none" />
-            <button className="primary-btn h-10 w-10 px-0"><Send size={16} /></button>
+            <button type="button" onClick={() => { setListening(!listening); if (!listening) setInput("请分析当前 ETH 的现货、DeFi 和合约配置机会"); }} className={`icon-btn ${listening ? "text-[var(--gold)]" : ""}`}><Mic size={18} /></button>
+            <textarea disabled={paused} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} rows={1} placeholder={paused ? "委员会已暂停" : "询问大师，或输入新的讨论方向..."} className="min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none" />
+            <button type="submit" disabled={!input.trim() || loading || paused} className="primary-btn h-10 w-10 px-0"><Send size={16} /></button>
           </div>
           <div className="mt-2 text-center text-[9px] text-[var(--muted)]">AI 可能出错。真实交易前请核对所有参数。</div>
-        </div>
+        </form>
       </section>
     </div>
   );
 }
 
-function TradePreview({ onBack }: { onBack: () => void }) {
+function TradePreview({ onBack, wallet, onNeedWallet, notify }: { onBack: () => void; wallet: string; onNeedWallet: () => void; notify: (message: string) => void }) {
+  const [accepted, setAccepted] = useState(false);
+  const [status, setStatus] = useState<"ready" | "signing" | "done">("ready");
+  const execute = () => {
+    if (!wallet) {
+      onNeedWallet();
+      return;
+    }
+    setStatus("signing");
+    window.setTimeout(() => {
+      setStatus("done");
+      notify("模拟交易完成，没有广播到链上");
+    }, 1200);
+  };
   return (
     <div className="plan-card">
       <div className="flex items-center justify-between">
@@ -380,15 +491,19 @@ function TradePreview({ onBack }: { onBack: () => void }) {
         ))}
       </div>
       <label className="mt-5 flex items-start gap-3 rounded-lg bg-[var(--panel-soft)] p-3 text-xs leading-5">
-        <input type="checkbox" className="mt-1 accent-[var(--green)]" /> 我已阅读风险摘要，并理解链上交易不可撤销。
+        <input checked={accepted} onChange={(event) => setAccepted(event.target.checked)} type="checkbox" className="mt-1 accent-[var(--green)]" /> 我已阅读风险摘要，并理解这是黑客松模拟交易，不会广播到链上。
       </label>
-      <button className="primary-btn mt-5 w-full"><Wallet size={16} /> 确认并唤起钱包签名</button>
+      <button disabled={!accepted || status !== "ready"} onClick={execute} className="primary-btn mt-5 w-full">
+        {status === "signing" ? <LoaderCircle className="animate-spin" size={16} /> : <Wallet size={16} />}
+        {status === "signing" ? "等待模拟签名..." : status === "done" ? "模拟交易完成" : wallet ? `使用 ${wallet} 模拟签名` : "连接钱包后模拟签名"}
+      </button>
     </div>
   );
 }
 
 function ProfileView() {
   const [hidden, setHidden] = useState(true);
+  const [showAll, setShowAll] = useState(false);
   const allocation = useMemo(() => [
     ["Ethereum", "62%", "bg-[#265c46]"],
     ["BNB Chain", "21%", "bg-[#b08b45]"],
@@ -427,27 +542,33 @@ function ProfileView() {
         </div>
       </div>
       <div className="mt-4 stat-card">
-        <div className="flex items-center justify-between"><h2 className="font-serif text-xl">近期活动</h2><button className="text-xs text-[var(--green)]">查看全部</button></div>
+        <div className="flex items-center justify-between"><h2 className="font-serif text-xl">近期活动</h2><button onClick={() => setShowAll(!showAll)} className="text-xs text-[var(--green)]">{showAll ? "收起" : "查看全部"}</button></div>
         <div className="mt-5 divide-y divide-[var(--line)]">
           {[
             [<History key="h" size={16} />, "稳健增长组合完成再平衡", "2 小时前", "+$248.20"],
             [<ShieldCheck key="s" size={16} />, "Aave 健康因子恢复至 2.41", "昨天", "安全"],
             [<CircleDollarSign key="c" size={16} />, "ETH → USDT 交换成功", "3 天前", "0.05 ETH"],
-          ].map((item, i) => <div key={i} className="flex items-center gap-4 py-4 text-sm"><span className="text-[var(--green)]">{item[0]}</span><span className="flex-1">{item[1]}</span><span className="text-xs text-[var(--muted)]">{item[2]}</span><span className="w-20 text-right text-xs">{item[3]}</span></div>)}
+            ...(showAll ? [[<Sparkles key="x" size={16} />, "保存新的 AI 委员会", "5 天前", "已保存"]] : []),
+          ].map((item, i) => <button key={i} className="flex w-full items-center gap-4 py-4 text-left text-sm"><span className="text-[var(--green)]">{item[0]}</span><span className="flex-1">{item[1]}</span><span className="text-xs text-[var(--muted)]">{item[2]}</span><span className="w-20 text-right text-xs">{item[3]}</span></button>)}
         </div>
       </div>
     </div>
   );
 }
 
-function WalletModal({ onClose }: { onClose: () => void }) {
+function WalletModal({ onClose, onConnect }: { onClose: () => void; onConnect: (wallet: string) => void }) {
+  const [connecting, setConnecting] = useState("");
+  const connect = (wallet: string) => {
+    setConnecting(wallet);
+    window.setTimeout(() => onConnect(wallet), 700);
+  };
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4 backdrop-blur-sm" onMouseDown={onClose}>
       <div className="w-full max-w-md rounded-2xl bg-[var(--panel)] p-6 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between"><div><div className="section-label">Privy 登录</div><h2 className="mt-2 font-serif text-2xl">连接到追光者</h2></div><button onClick={onClose} className="icon-btn"><X size={17} /></button></div>
-        <p className="mt-3 text-xs leading-5 text-[var(--muted)]">连接钱包后可查看跨链资产、保存加密对话并执行真实交易。</p>
+        <p className="mt-3 text-xs leading-5 text-[var(--muted)]">黑客松版本仅模拟连接，不读取私钥、不请求链上授权，也不会发起真实交易。</p>
         <div className="mt-6 space-y-2">
-          {["MetaMask", "WalletConnect", "Phantom", "使用邮箱或社交账号"].map((wallet) => <button key={wallet} className="topic-row"><Wallet size={17} /><span className="flex-1 text-left">{wallet}</span><ArrowRight size={15} /></button>)}
+          {["MetaMask", "WalletConnect", "Phantom", "邮箱登录"].map((wallet) => <button disabled={Boolean(connecting)} onClick={() => connect(wallet)} key={wallet} className="topic-row"><Wallet size={17} /><span className="flex-1 text-left">{wallet}</span>{connecting === wallet ? <LoaderCircle className="animate-spin" size={15} /> : <ArrowRight size={15} />}</button>)}
         </div>
         <div className="mt-5 flex items-start gap-2 text-[10px] leading-4 text-[var(--muted)]"><ShieldCheck size={14} className="mt-0.5 shrink-0" />我们不会托管你的私钥。演示版本使用模拟合规检查结果。</div>
       </div>

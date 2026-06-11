@@ -12,6 +12,8 @@
   --line: #d8d4c7;
   --gold: #9c7a3d;
   --positive: #397c58;
+  --bg-glass: rgba(245, 241, 231, .94);
+  --panel-glass: rgba(255, 253, 247, .95);
 }
 
 [data-theme="dark"] {
@@ -26,6 +28,8 @@
   --line: #2b3d36;
   --gold: #d2ad68;
   --positive: #7fca9e;
+  --bg-glass: rgba(16, 27, 23, .94);
+  --panel-glass: rgba(23, 36, 31, .95);
 }
 
 * { box-sizing: border-box; }
@@ -89,6 +93,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .status-dot { border-radius: 999px; background: var(--wash); padding: 4px 8px; font-size: 9px; color: var(--positive); }
 .status-dot::before { content: ""; display: inline-block; width: 5px; height: 5px; margin-right: 5px; border-radius: 50%; background: var(--positive); animation: pulse 1.5s infinite; }
 .plan-card, .stat-card { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); padding: 22px; box-shadow: 0 12px 35px rgba(22,57,45,.06); }
+.stat-card { transition: transform .2s ease, border-color .2s ease; }
+.stat-card:hover { border-color: color-mix(in srgb, var(--green) 55%, var(--line)); }
 .chart {
   position: relative;
   overflow: hidden;

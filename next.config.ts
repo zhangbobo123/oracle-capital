@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-const isGitHubActions = process.env.GITHUB_ACTIONS === "true";
+const isGitHubActions = process.env.STATIC_EXPORT === "true";
 const basePath = isGitHubActions ? "/oracle-capital" : "";
 
 const nextConfig: NextConfig = {

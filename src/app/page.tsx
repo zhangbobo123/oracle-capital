@@ -5,18 +5,20 @@ import Link from "next/link";
 import {
   ArrowLeft,
   ArrowRight,
+  ArrowDownToLine,
+  ArrowUpFromLine,
   BarChart3,
   Bell,
   Check,
   CircleDollarSign,
   Globe2,
-  History,
   LoaderCircle,
   Mic,
   Moon,
   Pause,
   Play,
   Plus,
+  RefreshCw,
   Send,
   ShieldCheck,
   Sparkles,
@@ -227,7 +229,7 @@ export default function Home() {
             <button onClick={() => setWalletOpen(true)} className="primary-btn ml-1">
               <Wallet size={16} /> <span className="hidden sm:inline">{wallet ? `${wallet.label} ${shortAddress(wallet.address)}` : t.connect}</span>
             </button>
-            <button onClick={() => setView("profile")} className="icon-btn"><UserRound size={17} /></button>
+            <button aria-label="个人中心" onClick={() => setView("profile")} className="icon-btn"><UserRound size={17} /></button>
           </div>
         </div>
       </header>
@@ -243,7 +245,7 @@ export default function Home() {
         />
       )}
       {view === "chat" && <ChatView selectedMasters={selectedMasters} initialQuestion={question} onBack={() => setView("home")} wallet={wallet} onNeedWallet={() => setWalletOpen(true)} notify={setToast} />}
-      {view === "profile" && <ProfileView />}
+      {view === "profile" && <ProfileView wallet={wallet} onNeedWallet={() => setWalletOpen(true)} notify={setToast} />}
       {walletOpen && <WalletModal connected={wallet} onClose={() => setWalletOpen(false)} onConnect={(value) => { setWallet(value); window.localStorage.setItem("oracle-capital-wallet", JSON.stringify(value)); setWalletOpen(false); setToast(`${value.label} 已连接`); }} onDisconnect={() => { setWallet(null); window.localStorage.removeItem("oracle-capital-wallet"); setWalletOpen(false); setToast("钱包已断开"); }} notify={setToast} />}
       {toast && <div className="fixed bottom-5 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-[var(--ink)] px-5 py-3 text-xs text-[var(--bg)] shadow-xl">{toast}</div>}
     </main>
@@ -661,9 +663,105 @@ function TradePreview({ onBack, decision, wallet, onNeedWallet, notify }: { onBa
   );
 }
 
-function ProfileView() {
+type SimulationTransaction = {
+  id: string;
+  type: "deposit" | "withdraw";
+  amount: number;
+  fee: number;
+  createdAt: number;
+};
+
+type WalletBalance = {
+  chain: string;
+  symbol: string;
+  balance: number;
+};
+
+function ProfileView({ wallet, onNeedWallet, notify }: { wallet: ConnectedWallet | null; onNeedWallet: () => void; notify: (message: string) => void }) {
   const [hidden, setHidden] = useState(true);
   const [showAll, setShowAll] = useState(false);
+  const [mode, setMode] = useState<"simulation" | "wallet">("simulation");
+  const [simulationBalance, setSimulationBalance] = useState(10000);
+  const [transactions, setTransactions] = useState<SimulationTransaction[]>([]);
+  const [cashAction, setCashAction] = useState<"deposit" | "withdraw" | null>(null);
+  const [amount, setAmount] = useState("");
+  const [walletBalances, setWalletBalances] = useState<WalletBalance[]>([]);
+  const [portfolioLoading, setPortfolioLoading] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const raw = window.localStorage.getItem("oracle-capital-simulation");
+      if (!raw) return;
+      try {
+        const saved = JSON.parse(raw) as { balance: number; transactions: SimulationTransaction[] };
+        setSimulationBalance(saved.balance);
+        setTransactions(saved.transactions);
+      } catch {
+        window.localStorage.removeItem("oracle-capital-simulation");
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const saveSimulation = (balance: number, nextTransactions: SimulationTransaction[]) => {
+    setSimulationBalance(balance);
+    setTransactions(nextTransactions);
+    window.localStorage.setItem("oracle-capital-simulation", JSON.stringify({ balance, transactions: nextTransactions }));
+  };
+
+  const submitCashAction = () => {
+    const value = Number(amount);
+    if (!cashAction || !Number.isFinite(value) || value <= 0) {
+      notify("请输入有效金额");
+      return;
+    }
+    const fee = cashAction === "withdraw" ? value * 0.0001 : 0;
+    if (cashAction === "withdraw" && value + fee > simulationBalance) {
+      notify("模拟盘可用余额不足");
+      return;
+    }
+    const nextBalance = cashAction === "deposit"
+      ? simulationBalance + value
+      : simulationBalance - value - fee;
+    const nextTransactions = [{
+      id: crypto.randomUUID(),
+      type: cashAction,
+      amount: value,
+      fee,
+      createdAt: Date.now(),
+    }, ...transactions].slice(0, 30);
+    saveSimulation(nextBalance, nextTransactions);
+    notify(cashAction === "deposit" ? "模拟充值成功" : `模拟提现成功，手续费 $${fee.toFixed(2)}`);
+    setAmount("");
+    setCashAction(null);
+  };
+
+  const loadPortfolio = async () => {
+    if (!wallet) {
+      onNeedWallet();
+      return;
+    }
+    setPortfolioLoading(true);
+    try {
+      const response = await fetch(`/api/portfolio?kind=${wallet.kind}&address=${encodeURIComponent(wallet.address)}`, { cache: "no-store" });
+      if (!response.ok) throw new Error("Portfolio API failed");
+      const data = await response.json() as { balances: WalletBalance[] };
+      setWalletBalances(data.balances);
+    } catch {
+      notify("链上余额读取失败，请稍后重试");
+    } finally {
+      setPortfolioLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (mode !== "wallet" || !wallet) return;
+    const timer = window.setTimeout(() => void loadPortfolio(), 0);
+    return () => window.clearTimeout(timer);
+    // Wallet identity is sufficient to trigger a refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, wallet?.address]);
+
   const allocation = useMemo(() => [
     ["Ethereum", "62%", "bg-[#265c46]"],
     ["BNB Chain", "21%", "bg-[#b08b45]"],
@@ -671,12 +769,18 @@ function ProfileView() {
   ], []);
   return (
     <div className="mx-auto max-w-[1100px] px-5 py-12 lg:px-10">
-      <div className="flex items-end justify-between">
-        <div><div className="section-label">个人中心</div><h1 className="mt-3 font-serif text-4xl">资产与策略总览</h1></div>
+      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
+        <div><div className="section-label">个人中心</div><h1 className="mt-3 font-serif text-4xl">资产与资金账户</h1><p className="mt-2 text-xs text-[var(--muted)]">{mode === "simulation" ? "模拟盘资金不会进入链上，可自由充值和提现测试。" : "真实资产直接从已连接钱包的公开链上余额读取。"}</p></div>
         <button onClick={() => setHidden(!hidden)} className="secondary-btn">{hidden ? "显示资产" : "隐藏资产"}</button>
       </div>
+      <div className="mt-7 inline-flex rounded-full border border-[var(--line)] bg-[var(--panel)] p-1">
+        <button onClick={() => setMode("simulation")} className={`rounded-full px-5 py-2 text-xs ${mode === "simulation" ? "bg-[var(--green)] text-[var(--bg)]" : "text-[var(--muted)]"}`}>模拟盘</button>
+        <button onClick={() => setMode("wallet")} className={`rounded-full px-5 py-2 text-xs ${mode === "wallet" ? "bg-[var(--green)] text-[var(--bg)]" : "text-[var(--muted)]"}`}>真实钱包</button>
+      </div>
+
+      {mode === "simulation" ? <>
       <div className="mt-8 grid gap-4 md:grid-cols-3">
-        {[["跨链总资产", "$128,460.82", "+4.8%"], ["累计收益", "$18,204.50", "+16.5%"], ["运行中策略", "3", "1 个自动执行"]].map((item) => (
+        {[["模拟可用资产", `$${simulationBalance.toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "初始资金 $10,000"], ["模拟累计收益", "$0.00", "等待策略执行"], ["提现手续费", "0.01%", "仅模拟盘当前生效"]].map((item) => (
           <div key={item[0]} className="stat-card">
             <div className="text-xs text-[var(--muted)]">{item[0]}</div>
             <div className={`mt-3 font-serif text-3xl ${hidden ? "blur-md select-none" : ""}`}>{item[1]}</div>
@@ -684,6 +788,11 @@ function ProfileView() {
           </div>
         ))}
       </div>
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <button onClick={() => setCashAction("deposit")} className="stat-card flex items-center gap-4 text-left"><span className="grid h-12 w-12 place-items-center rounded-full bg-[var(--wash)]"><ArrowDownToLine size={20} /></span><span><strong>模拟充值</strong><span className="mt-1 block text-xs text-[var(--muted)]">即时增加模拟盘可用余额</span></span></button>
+        <button onClick={() => setCashAction("withdraw")} className="stat-card flex items-center gap-4 text-left"><span className="grid h-12 w-12 place-items-center rounded-full bg-[var(--wash)]"><ArrowUpFromLine size={20} /></span><span><strong>随时提现</strong><span className="mt-1 block text-xs text-[var(--muted)]">收取提现金额的 0.01%</span></span></button>
+      </div>
+      {cashAction && <div className="mt-4 plan-card"><div className="flex items-center justify-between"><div><div className="section-label">{cashAction === "deposit" ? "模拟充值" : "模拟提现"}</div><h2 className="mt-2 font-serif text-2xl">输入金额</h2></div><button onClick={() => setCashAction(null)} className="icon-btn"><X size={16} /></button></div><div className="mt-5 flex gap-2"><input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" placeholder="0.00 USD" className="min-w-0 flex-1 rounded-full border border-[var(--line)] bg-transparent px-5 text-sm outline-none" /><button onClick={submitCashAction} className="primary-btn">确认{cashAction === "deposit" ? "充值" : "提现"}</button></div>{cashAction === "withdraw" && <p className="mt-3 text-xs text-[var(--muted)]">预计手续费：${((Number(amount) || 0) * 0.0001).toFixed(4)}，到账金额：${Math.max(0, (Number(amount) || 0)).toFixed(2)}</p>}</div>}
       <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_.6fr]">
         <div className="stat-card">
           <div className="flex items-center justify-between"><h2 className="font-serif text-xl">资产趋势</h2><span className="text-xs text-[var(--muted)]">近 30 日</span></div>
@@ -702,16 +811,21 @@ function ProfileView() {
         </div>
       </div>
       <div className="mt-4 stat-card">
-        <div className="flex items-center justify-between"><h2 className="font-serif text-xl">近期活动</h2><button onClick={() => setShowAll(!showAll)} className="text-xs text-[var(--green)]">{showAll ? "收起" : "查看全部"}</button></div>
+        <div className="flex items-center justify-between"><h2 className="font-serif text-xl">模拟资金流水</h2><button onClick={() => setShowAll(!showAll)} className="text-xs text-[var(--green)]">{showAll ? "收起" : "查看全部"}</button></div>
         <div className="mt-5 divide-y divide-[var(--line)]">
-          {[
-            [<History key="h" size={16} />, "稳健增长组合完成再平衡", "2 小时前", "+$248.20"],
-            [<ShieldCheck key="s" size={16} />, "Aave 健康因子恢复至 2.41", "昨天", "安全"],
-            [<CircleDollarSign key="c" size={16} />, "ETH → USDT 交换成功", "3 天前", "0.05 ETH"],
-            ...(showAll ? [[<Sparkles key="x" size={16} />, "保存新的 AI 委员会", "5 天前", "已保存"]] : []),
-          ].map((item, i) => <button key={i} className="flex w-full items-center gap-4 py-4 text-left text-sm"><span className="text-[var(--green)]">{item[0]}</span><span className="flex-1">{item[1]}</span><span className="text-xs text-[var(--muted)]">{item[2]}</span><span className="w-20 text-right text-xs">{item[3]}</span></button>)}
+          {transactions.length ? transactions.slice(0, showAll ? transactions.length : 3).map((item) => <div key={item.id} className="flex items-center gap-4 py-4 text-sm"><span className="text-[var(--green)]">{item.type === "deposit" ? <ArrowDownToLine size={16} /> : <ArrowUpFromLine size={16} />}</span><span className="flex-1">{item.type === "deposit" ? "模拟充值" : "模拟提现"}</span><span className="text-xs text-[var(--muted)]">{new Date(item.createdAt).toLocaleString("zh-CN")}</span><span className="w-28 text-right text-xs">{item.type === "deposit" ? "+" : "-"}${item.amount.toFixed(2)}{item.fee > 0 ? ` · 费 $${item.fee.toFixed(2)}` : ""}</span></div>) : <p className="py-5 text-sm text-[var(--muted)]">暂无流水。你可以先进行一笔模拟充值。</p>}
         </div>
       </div>
+      </> : <>
+        <div className="mt-8 plan-card">
+          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><div className="section-label">真实链上钱包</div><h2 className="mt-2 font-serif text-2xl">{wallet ? `${wallet.label} ${shortAddress(wallet.address)}` : "尚未连接钱包"}</h2></div>{wallet ? <button onClick={() => void loadPortfolio()} disabled={portfolioLoading} className="secondary-btn"><RefreshCw className={portfolioLoading ? "animate-spin" : ""} size={15} />刷新余额</button> : <button onClick={onNeedWallet} className="primary-btn"><Wallet size={15} />连接钱包</button>}</div>
+          {wallet && <div className="mt-6 grid gap-3 md:grid-cols-2">{walletBalances.length ? walletBalances.map((balance) => <div key={balance.chain} className="rounded-xl bg-[var(--panel-soft)] p-4"><div className="text-xs text-[var(--muted)]">{balance.chain}</div><div className={`mt-2 font-mono text-2xl ${hidden ? "blur-md select-none" : ""}`}>{balance.balance.toLocaleString("en-US", { maximumFractionDigits: 6 })} {balance.symbol}</div></div>) : <div className="text-sm text-[var(--muted)]">{portfolioLoading ? "正在读取链上余额..." : "点击刷新读取余额"}</div>}</div>}
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className="stat-card"><ArrowDownToLine className="text-[var(--gold)]" /><h3 className="mt-5 font-serif text-xl">真实充值</h3><p className="mt-2 text-xs leading-6 text-[var(--muted)]">{wallet ? `从交易所或其他钱包转账到：${shortAddress(wallet.address)}` : "连接钱包后显示你的链上收款地址。"}</p>{wallet && <button onClick={() => { void navigator.clipboard?.writeText(wallet.address); notify("收款地址已复制"); }} className="secondary-btn mt-5 w-full">复制收款地址</button>}</div>
+          <div className="stat-card"><ArrowUpFromLine className="text-[var(--gold)]" /><h3 className="mt-5 font-serif text-xl">真实提现</h3><p className="mt-2 text-xs leading-6 text-[var(--muted)]">非托管模式下，资产始终在你的钱包里，可随时通过钱包发送。平台尚未部署可审计的收费金库，因此不会伪造收取 0.01% 手续费。</p><button onClick={() => notify("真实收费提现需要部署审计金库合约后启用")} className="secondary-btn mt-5 w-full">金库通道待启用</button></div>
+        </div>
+      </>}
     </div>
   );
 }

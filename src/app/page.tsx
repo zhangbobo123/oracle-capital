@@ -31,6 +31,21 @@ type Message = {
   role: "user" | "master" | "system";
   content: string;
   masterId?: string;
+  vote?: "approve" | "abstain" | "reject";
+  confidence?: number;
+};
+
+type CommitteeDecision = {
+  title: string;
+  thesis: string;
+  allocations: { label: string; percentage: number; rationale: string }[];
+  riskLevel: "稳健" | "均衡" | "进取" | "高风险";
+  expectedReturn: string;
+  maxDrawdown: string;
+  dissent: string;
+  steps: string[];
+  consensusRate: number;
+  voteCounts: { approve: number; abstain: number; reject: number };
 };
 
 type SavedConversation = {
@@ -38,6 +53,7 @@ type SavedConversation = {
   title: string;
   masterIds: string[];
   messages: Message[];
+  decision?: CommitteeDecision;
   updatedAt: number;
 };
 
@@ -364,7 +380,7 @@ function ChatView({
   const [input, setInput] = useState(initialQuestion);
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
-  const [allocation, setAllocation] = useState({ spot: 60, defi: 30, reserve: 10 });
+  const [decision, setDecision] = useState<CommitteeDecision | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     { id: "welcome", role: "system", content: "投资委员会已就席。发送问题后，所选大师会从不同框架给出意见，再形成综合方案。" },
   ]);
@@ -400,6 +416,7 @@ function ChatView({
           title: firstQuestion.slice(0, 22),
           masterIds: activeMasterIds.split(","),
           messages,
+          decision: decision ?? undefined,
           updatedAt: Date.now(),
         };
         const next = [nextConversation, ...current.filter((item) => item.id !== conversationId)]
@@ -410,20 +427,22 @@ function ChatView({
       });
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [activeMasterIds, conversationId, messages, storageReady]);
+  }, [activeMasterIds, conversationId, decision, messages, storageReady]);
 
   const newConversation = () => {
     setConversationId(crypto.randomUUID());
     setMessages([{ id: crypto.randomUUID(), role: "system", content: "新对话已建立，请输入你的投资问题。" }]);
     setShowPlan(false);
     setPreview(false);
+    setDecision(null);
     setInput("");
   };
 
   const loadConversation = (conversation: SavedConversation) => {
     setConversationId(conversation.id);
     setMessages(conversation.messages);
-    setShowPlan(conversation.messages.some((message) => message.role === "master"));
+    setDecision(conversation.decision ?? null);
+    setShowPlan(Boolean(conversation.decision));
     setPreview(false);
     notify(`已恢复：${conversation.title}`);
   };
@@ -438,6 +457,7 @@ function ChatView({
     setLoading(true);
     setShowPlan(false);
     setPreview(false);
+    setDecision(null);
 
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/chat`, {
@@ -451,14 +471,28 @@ function ChatView({
       });
       if (!response.ok) throw new Error("DeepSeek unavailable");
       const data = await response.json() as {
-        replies: { masterId: string; content: string }[];
+        replies: {
+          masterId: string;
+          content: string;
+          vote: "approve" | "abstain" | "reject";
+          confidence: number;
+        }[];
         synthesis: string;
+        decision: CommitteeDecision;
       };
       setMessages((current) => [
         ...current,
-        ...data.replies.map((reply) => ({ id: crypto.randomUUID(), role: "master" as const, masterId: reply.masterId, content: reply.content })),
+        ...data.replies.map((reply) => ({
+          id: crypto.randomUUID(),
+          role: "master" as const,
+          masterId: reply.masterId,
+          content: reply.content,
+          vote: reply.vote,
+          confidence: reply.confidence,
+        })),
         { id: crypto.randomUUID(), role: "system", content: data.synthesis },
       ]);
+      setDecision(data.decision);
       setShowPlan(true);
     } catch {
       const fallback = activeMasters.map((master, index) => ({
@@ -474,6 +508,21 @@ function ChatView({
         ...fallback,
         { id: crypto.randomUUID(), role: "system", content: "综合结论：分批建仓、限制单协议敞口、保留机动资金，并在交易前核对链、币种、滑点与授权额度。当前为静态演示回复。" },
       ]);
+      setDecision({
+        title: "防守型观察方案",
+        thesis: "当前信息不足以形成高置信度配置，先保留选择权并补齐关键数据。",
+        allocations: [
+          { label: "机动资金", percentage: 70, rationale: "等待更清晰的价格与风险信号" },
+          { label: "小额观察仓", percentage: 30, rationale: "仅用于验证假设，不使用杠杆" },
+        ],
+        riskLevel: "均衡",
+        expectedReturn: "不适用",
+        maxDrawdown: "控制在可承受范围内",
+        dissent: "AI 服务降级，委员会未完成正式投票。",
+        steps: ["明确投资期限与最大亏损", "补充可验证数据", "小额分批执行"],
+        consensusRate: 50,
+        voteCounts: { approve: 0, abstain: activeMasters.length, reject: 0 },
+      });
       setShowPlan(true);
       notify("DeepSeek 暂未响应，已切换演示回复");
     } finally {
@@ -519,44 +568,47 @@ function ChatView({
             return (
               <div key={message.id} className="flex gap-3">
                 <Avatar master={master} size="md" />
-                <div><div className="mb-2 flex items-center gap-2"><span className="text-sm font-semibold">{master.name}</span><span className="text-[10px] text-[var(--muted)]">{master.school}</span></div><p className="whitespace-pre-wrap text-sm leading-7 text-[var(--ink-soft)]">{message.content}</p></div>
+                <div>
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold">{master.name}</span>
+                    <span className="text-[10px] text-[var(--muted)]">{master.school}</span>
+                    {message.vote && <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${message.vote === "approve" ? "bg-emerald-500/10 text-emerald-600" : message.vote === "reject" ? "bg-red-500/10 text-red-500" : "bg-amber-500/10 text-amber-600"}`}>{message.vote === "approve" ? "赞成" : message.vote === "reject" ? "反对" : "保留"} · {message.confidence}%</span>}
+                  </div>
+                  <p className="whitespace-pre-wrap text-sm leading-7 text-[var(--ink-soft)]">{message.content}</p>
+                </div>
               </div>
             );
           })}
           {loading && <div className="flex items-center gap-3 text-sm text-[var(--muted)]"><LoaderCircle className="animate-spin" size={18} />DeepSeek 正在组织不同大师的观点...</div>}
 
-          {showPlan && !preview && (
+          {showPlan && decision && !preview && (
             <div className="plan-card">
               <div className="flex items-start justify-between">
                 <div>
-                  <div className="section-label"><Sparkles size={14} /> 委员会综合方案</div>
-                  <h3 className="mt-2 font-serif text-2xl">稳健增长组合</h3>
+                  <div className="section-label"><Sparkles size={14} /> 委员会最终方案</div>
+                  <h3 className="mt-2 font-serif text-2xl">{decision.title}</h3>
                 </div>
-                <span className="rounded-full bg-[var(--wash)] px-3 py-1 text-xs text-[var(--green)]">置信度 84%</span>
+                <span className="rounded-full bg-[var(--wash)] px-3 py-1 text-xs text-[var(--green)]">共识率 {decision.consensusRate}%</span>
               </div>
-              {editing ? <div className="mt-6 space-y-4">
-                {([["spot", "ETH 现货"], ["defi", "Aave 存款"], ["reserve", "机动资金"]] as const).map(([key, label]) => <label key={key} className="block text-xs"><span className="mb-2 flex justify-between"><span>{label}</span><strong>{allocation[key]}%</strong></span><input className="w-full accent-[var(--green)]" type="range" min="0" max="100" value={allocation[key]} onChange={(event) => setAllocation((current) => ({ ...current, [key]: Number(event.target.value) }))} /></label>)}
-                <div className={`text-xs ${allocation.spot + allocation.defi + allocation.reserve === 100 ? "text-[var(--positive)]" : "text-red-500"}`}>当前合计 {allocation.spot + allocation.defi + allocation.reserve}%（必须为 100%）</div>
-              </div> : <div className="mt-6 grid grid-cols-3 gap-2">
-                {[["ETH 现货", `${allocation.spot}%`, `${allocation.spot * 0.05} ETH`], ["Aave 存款", `${allocation.defi}%`, `${allocation.defi * 0.05} ETH`], ["机动资金", `${allocation.reserve}%`, `${allocation.reserve * 0.05} ETH`]].map((item) => (
-                  <div key={item[0]} className="rounded-lg bg-[var(--panel-soft)] p-3">
-                    <div className="text-[10px] text-[var(--muted)]">{item[0]}</div>
-                    <div className="mt-1 font-serif text-xl">{item[1]}</div>
-                    <div className="text-[10px] text-[var(--muted)]">{item[2]}</div>
-                  </div>
-                ))}
-              </div>}
-              <div className="mt-5 flex items-center gap-2 text-xs text-[var(--muted)]">
-                <ShieldCheck size={15} className="text-[var(--positive)]" /> 预计年化 8.2% · 最大模拟回撤 18.6% · 风险等级：均衡
+              <p className="mt-4 text-sm leading-6 text-[var(--ink-soft)]">{decision.thesis}</p>
+              <div className="mt-5 grid grid-cols-3 gap-2">
+                {[["赞成", decision.voteCounts.approve, "text-emerald-600"], ["保留", decision.voteCounts.abstain, "text-amber-600"], ["反对", decision.voteCounts.reject, "text-red-500"]].map(([label, value, color]) => <div key={String(label)} className="rounded-lg bg-[var(--panel-soft)] p-3 text-center"><div className={`font-serif text-xl ${color}`}>{value}</div><div className="text-[10px] text-[var(--muted)]">{label}票</div></div>)}
               </div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {decision.allocations.map((item) => <div key={item.label} className="rounded-lg border border-[var(--line)] p-3"><div className="flex items-center justify-between"><span className="text-xs font-semibold">{item.label}</span><span className="font-serif text-xl">{item.percentage}%</span></div><p className="mt-2 text-[10px] leading-5 text-[var(--muted)]">{item.rationale}</p></div>)}
+              </div>
+              <div className="mt-4 rounded-lg bg-[var(--panel-soft)] p-4 text-xs leading-6"><strong>主要分歧：</strong>{decision.dissent}</div>
+              <div className="mt-4 grid gap-3 text-xs sm:grid-cols-3"><div><span className="text-[var(--muted)]">风险等级</span><strong className="mt-1 block">{decision.riskLevel}</strong></div><div><span className="text-[var(--muted)]">收益判断</span><strong className="mt-1 block">{decision.expectedReturn}</strong></div><div><span className="text-[var(--muted)]">压力回撤</span><strong className="mt-1 block">{decision.maxDrawdown}</strong></div></div>
+              <div className="mt-5"><div className="section-label"><ShieldCheck size={14} /> 执行步骤</div><ol className="mt-3 space-y-2">{decision.steps.map((step, index) => <li key={`${step}-${index}`} className="flex gap-3 text-xs leading-5"><span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[var(--wash)] font-serif">{index + 1}</span><span>{step}</span></li>)}</ol></div>
               <div className="mt-6 flex flex-col gap-2 sm:flex-row">
-                <button disabled={allocation.spot + allocation.defi + allocation.reserve !== 100} className="primary-btn flex-1" onClick={() => editing ? setEditing(false) : setPreview(true)}><CircleDollarSign size={16} /> {editing ? "保存参数" : "预览模拟交易"}</button>
-                <button onClick={() => setEditing(!editing)} className="secondary-btn flex-1">{editing ? "取消编辑" : "编辑参数"}</button>
+                <button className="primary-btn flex-1" onClick={() => setPreview(true)}><CircleDollarSign size={16} /> 预览模拟执行</button>
+                <button onClick={() => setEditing(!editing)} className="secondary-btn flex-1">{editing ? "收起投票说明" : "查看投票机制"}</button>
               </div>
+              {editing && <p className="mt-3 rounded-lg border border-[var(--line)] p-3 text-[10px] leading-5 text-[var(--muted)]">共识率计算：赞成票计 1，保留票计 0.5，反对票计 0，再除以参与投票的大师人数。彩蛋只改变角色台词，不影响投票和最终方案。</p>}
             </div>
           )}
 
-          {preview && <TradePreview wallet={wallet} onNeedWallet={onNeedWallet} notify={notify} onBack={() => setPreview(false)} />}
+          {preview && decision && <TradePreview decision={decision} wallet={wallet} onNeedWallet={onNeedWallet} notify={notify} onBack={() => setPreview(false)} />}
           {paused && <div className="rounded-lg border border-[var(--gold)]/40 bg-[var(--gold)]/5 p-4 text-center text-xs">委员会已暂停。你可以修改议题，或从当前上下文继续。</div>}
         </div>
 
@@ -573,7 +625,7 @@ function ChatView({
   );
 }
 
-function TradePreview({ onBack, wallet, onNeedWallet, notify }: { onBack: () => void; wallet: ConnectedWallet | null; onNeedWallet: () => void; notify: (message: string) => void }) {
+function TradePreview({ onBack, decision, wallet, onNeedWallet, notify }: { onBack: () => void; decision: CommitteeDecision; wallet: ConnectedWallet | null; onNeedWallet: () => void; notify: (message: string) => void }) {
   const [accepted, setAccepted] = useState(false);
   const [status, setStatus] = useState<"ready" | "signing" | "done">("ready");
   const execute = () => {
@@ -590,13 +642,13 @@ function TradePreview({ onBack, wallet, onNeedWallet, notify }: { onBack: () => 
   return (
     <div className="plan-card">
       <div className="flex items-center justify-between">
-        <div><div className="section-label">交易预览</div><h3 className="mt-2 font-serif text-2xl">ETH → USDT</h3></div>
+        <div><div className="section-label">方案执行预览</div><h3 className="mt-2 font-serif text-2xl">{decision.title}</h3></div>
         <button onClick={onBack} className="icon-btn"><X size={16} /></button>
       </div>
       <div className="mt-6 space-y-3 text-sm">
-        {[["支付", "0.05 ETH"], ["预计收到", "174.82 USDT"], ["协议", "Uniswap V3"], ["网络", "Ethereum Mainnet"], ["预计 Gas", "$3.42"], ["最大滑点", "0.50%"]].map(([label, value]) => (
-          <div key={label} className="flex justify-between border-b border-[var(--line)] pb-3"><span className="text-[var(--muted)]">{label}</span><span>{value}</span></div>
-        ))}
+        {decision.allocations.map((item) => <div key={item.label} className="flex justify-between gap-4 border-b border-[var(--line)] pb-3"><span className="text-[var(--muted)]">{item.label}</span><span>{item.percentage}%</span></div>)}
+        <div className="flex justify-between border-b border-[var(--line)] pb-3"><span className="text-[var(--muted)]">共识率</span><span>{decision.consensusRate}%</span></div>
+        <div className="flex justify-between border-b border-[var(--line)] pb-3"><span className="text-[var(--muted)]">风险等级</span><span>{decision.riskLevel}</span></div>
       </div>
       <label className="mt-5 flex items-start gap-3 rounded-lg bg-[var(--panel-soft)] p-3 text-xs leading-5">
         <input checked={accepted} onChange={(event) => setAccepted(event.target.checked)} type="checkbox" className="mt-1 accent-[var(--green)]" /> 我已阅读风险摘要，并理解这是黑客松模拟交易，不会广播到链上。

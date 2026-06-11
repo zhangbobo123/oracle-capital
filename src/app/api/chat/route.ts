@@ -9,8 +9,23 @@ type MasterInput = {
 };
 
 type DeepSeekReply = {
-  replies: { masterId: string; content: string }[];
+  replies: {
+    masterId: string;
+    content: string;
+    vote: "approve" | "abstain" | "reject";
+    confidence: number;
+  }[];
   synthesis: string;
+  finalPlan: {
+    title: string;
+    thesis: string;
+    allocations: { label: string; percentage: number; rationale: string }[];
+    riskLevel: "稳健" | "均衡" | "进取" | "高风险";
+    expectedReturn: string;
+    maxDrawdown: string;
+    dissent: string;
+    steps: string[];
+  };
 };
 
 const easterEggs = [
@@ -66,6 +81,26 @@ function extractJson(content: string): DeepSeekReply {
   return JSON.parse(cleaned.slice(start, end + 1)) as DeepSeekReply;
 }
 
+function normalizeAllocations(allocations: DeepSeekReply["finalPlan"]["allocations"]) {
+  const valid = (allocations ?? [])
+    .filter((item) => item.label?.trim() && Number.isFinite(Number(item.percentage)) && Number(item.percentage) >= 0)
+    .slice(0, 6)
+    .map((item) => ({ ...item, percentage: Math.round(Number(item.percentage)) }));
+  if (!valid.length) {
+    return [{ label: "机动资金", percentage: 100, rationale: "信息不足时优先保留选择权" }];
+  }
+  const total = valid.reduce((sum, item) => sum + item.percentage, 0);
+  if (total <= 0) return [{ label: "机动资金", percentage: 100, rationale: "暂不建立风险仓位" }];
+  let assigned = 0;
+  return valid.map((item, index) => {
+    const percentage = index === valid.length - 1
+      ? 100 - assigned
+      : Math.round((item.percentage / total) * 100);
+    assigned += percentage;
+    return { ...item, percentage: Math.max(0, percentage) };
+  });
+}
+
 export async function POST(request: Request) {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
@@ -92,11 +127,14 @@ export async function POST(request: Request) {
       "每位成员必须基于自己的投资流派独立回答，观点应明显不同，不得编造实时行情。",
       "涉及现货、DeFi 或合约时，必须说明主要风险、仓位约束和需要用户确认的信息。",
       "禁止承诺收益，禁止声称已替用户执行交易。",
+      "每位成员必须对最终提案投票：approve=赞成，abstain=保留，reject=反对，并给出 0-100 的信心值。",
+      "最终方案必须真正回应本轮问题，不得固定套用 ETH/Aave，也不得编造精确实时收益。",
+      "allocations 百分比合计必须为 100；若问题不适合建仓，可以把 100% 配置为现金或机动资金。",
       `成员：${JSON.stringify(masters)}`,
       `用户问题：${question}`,
       `最近对话：${JSON.stringify(body.history ?? [])}`,
       "只返回严格 JSON，不要 Markdown。",
-      '{"replies":[{"masterId":"成员id","content":"该成员的中文观点，100-180字"}],"synthesis":"中文综合结论，120-220字，含风险提醒和下一步"}',
+      '{"replies":[{"masterId":"成员id","content":"该成员的中文观点，100-180字","vote":"approve|abstain|reject","confidence":0}],"synthesis":"中文综合结论，120-220字","finalPlan":{"title":"本轮动态方案名","thesis":"方案核心逻辑","allocations":[{"label":"资产或策略","percentage":0,"rationale":"配置原因"}],"riskLevel":"稳健|均衡|进取|高风险","expectedReturn":"区间或不适用，禁止虚构精确值","maxDrawdown":"压力情景区间或不适用","dissent":"委员会最重要的反对意见","steps":["执行步骤1","执行步骤2"]}}',
     ].join("\n");
 
     const response = await fetch("https://api.deepseek.com/chat/completions", {
@@ -108,7 +146,7 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         model: "deepseek-chat",
         temperature: 0.75,
-        max_tokens: 1800,
+        max_tokens: 2600,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: "你擅长用多种投资哲学分析数字资产，并严格输出 JSON。" },
@@ -134,20 +172,37 @@ export async function POST(request: Request) {
     const allowedIds = selectedIds;
     const replies = result.replies
       .filter((reply) => allowedIds.has(reply.masterId) && reply.content?.trim())
-      .slice(0, masters.length);
+      .slice(0, masters.length)
+      .map((reply) => ({
+        ...reply,
+        vote: ["approve", "abstain", "reject"].includes(reply.vote) ? reply.vote : "abstain" as const,
+        confidence: Math.max(0, Math.min(100, Math.round(Number(reply.confidence) || 50))),
+      }));
     for (const egg of triggeredEggs) {
       const existing = replies.findIndex((reply) => reply.masterId === egg.masterId);
       if (existing >= 0) {
-        replies[existing] = { masterId: egg.masterId, content: egg.content };
-      } else {
-        replies.push({ masterId: egg.masterId, content: egg.content });
+        replies[existing] = { ...replies[existing], content: egg.content };
       }
     }
-    if (!replies.length || !result.synthesis?.trim()) throw new Error("DeepSeek response is incomplete");
+    if (!replies.length || !result.synthesis?.trim() || !result.finalPlan) throw new Error("DeepSeek response is incomplete");
+    const voteCounts = replies.reduce((counts, reply) => {
+      counts[reply.vote] += 1;
+      return counts;
+    }, { approve: 0, abstain: 0, reject: 0 });
+    const consensusRate = Math.round(((voteCounts.approve + voteCounts.abstain * 0.5) / replies.length) * 100);
     const synthesis = triggeredEggs.length
       ? `${result.synthesis}\n\n彩蛋已触发：${triggeredEggs.map((egg) => egg.masterId).join("、")} 给出了隐藏观点。`
       : result.synthesis;
-    return NextResponse.json({ replies, synthesis });
+    return NextResponse.json({
+      replies,
+      synthesis,
+      decision: {
+        ...result.finalPlan,
+        allocations: normalizeAllocations(result.finalPlan.allocations),
+        consensusRate,
+        voteCounts,
+      },
+    });
   } catch (error) {
     console.error("Chat route error", error);
     return NextResponse.json({ error: "Unable to generate an AI response" }, { status: 500 });

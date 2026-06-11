@@ -9,9 +9,12 @@ import {
   ArrowUpFromLine,
   BarChart3,
   Bell,
+  BookOpen,
   Check,
+  ChevronDown,
   CircleDollarSign,
   Globe2,
+  History,
   LoaderCircle,
   Mic,
   Moon,
@@ -170,14 +173,27 @@ export default function Home() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [lang, setLang] = useState<"zh" | "en">("zh");
   const [view, setView] = useState<"home" | "chat" | "profile">("home");
+  const [menuOpen, setMenuOpen] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
   const [wallet, setWallet] = useState<ConnectedWallet | null>(null);
   const [question, setQuestion] = useState("");
+  const [conversationToOpen, setConversationToOpen] = useState("");
+  const [savedConversations, setSavedConversations] = useState<SavedConversation[]>([]);
   const [toast, setToast] = useState("");
+  const [preferencesReady, setPreferencesReady] = useState(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-  }, [theme]);
+    if (preferencesReady) window.localStorage.setItem("oracle-capital-theme", theme);
+  }, [preferencesReady, theme]);
+
+  useEffect(() => {
+    if (preferencesReady) window.localStorage.setItem("oracle-capital-language", lang);
+  }, [lang, preferencesReady]);
+
+  useEffect(() => {
+    if (preferencesReady) window.localStorage.setItem("oracle-capital-selected-masters", JSON.stringify(selected));
+  }, [preferencesReady, selected]);
 
   useEffect(() => {
     if (!toast) return;
@@ -188,6 +204,28 @@ export default function Home() {
   useEffect(() => {
     const saved = window.localStorage.getItem("oracle-capital-wallet");
     const timer = window.setTimeout(() => {
+      const savedTheme = window.localStorage.getItem("oracle-capital-theme");
+      const savedLanguage = window.localStorage.getItem("oracle-capital-language");
+      const savedMasters = window.localStorage.getItem("oracle-capital-selected-masters");
+      const conversations = window.localStorage.getItem("oracle-capital-conversations");
+      if (savedTheme === "light" || savedTheme === "dark") setTheme(savedTheme);
+      if (savedLanguage === "zh" || savedLanguage === "en") setLang(savedLanguage);
+      if (savedMasters) {
+        try {
+          const ids = JSON.parse(savedMasters) as string[];
+          const validIds = ids.filter((id) => masters.some((master) => master.id === id));
+          if (validIds.length) setSelected(validIds);
+        } catch {
+          window.localStorage.removeItem("oracle-capital-selected-masters");
+        }
+      }
+      if (conversations) {
+        try {
+          setSavedConversations(JSON.parse(conversations) as SavedConversation[]);
+        } catch {
+          window.localStorage.removeItem("oracle-capital-conversations");
+        }
+      }
       if (saved) {
         try {
           setWallet(JSON.parse(saved) as ConnectedWallet);
@@ -195,9 +233,24 @@ export default function Home() {
           window.localStorage.removeItem("oracle-capital-wallet");
         }
       }
+      setPreferencesReady(true);
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (view !== "home") return;
+    const timer = window.setTimeout(() => {
+      const raw = window.localStorage.getItem("oracle-capital-conversations");
+      if (!raw) return setSavedConversations([]);
+      try {
+        setSavedConversations(JSON.parse(raw) as SavedConversation[]);
+      } catch {
+        window.localStorage.removeItem("oracle-capital-conversations");
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [view]);
 
   const t = translations[lang];
   const selectedMasters = masters.filter((master) => selected.includes(master.id));
@@ -206,6 +259,21 @@ export default function Home() {
     setSelected((current) =>
       current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
     );
+  };
+
+  const openNewConversation = (topic = "") => {
+    setConversationToOpen("");
+    setQuestion(topic);
+    setView("chat");
+  };
+
+  const openSavedConversation = (conversation: SavedConversation) => {
+    const validIds = conversation.masterIds.filter((id) => masters.some((master) => master.id === id));
+    if (validIds.length) setSelected(validIds);
+    setConversationToOpen(conversation.id);
+    setQuestion("");
+    setMenuOpen(false);
+    setView("chat");
   };
 
   return (
@@ -219,17 +287,36 @@ export default function Home() {
             <Link href="/rankings" className="hover:text-[var(--ink)]">{t.navRank}</Link>
           </nav>
           <div className="flex items-center gap-2">
-            <button className="icon-btn" onClick={() => setLang(lang === "zh" ? "en" : "zh")} aria-label="Change language">
-              <Globe2 size={17} />
-            </button>
-            <button className="icon-btn" onClick={() => setTheme(theme === "light" ? "dark" : "light")} aria-label="Toggle theme">
-              {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
-            </button>
             <button onClick={() => setToast("暂无新通知，AI 方案仍需你确认后执行")} className="icon-btn hidden sm:grid" aria-label="Notifications"><Bell size={17} /></button>
             <button onClick={() => setWalletOpen(true)} className="primary-btn ml-1">
               <Wallet size={16} /> <span className="hidden sm:inline">{wallet ? `${wallet.label} ${shortAddress(wallet.address)}` : t.connect}</span>
             </button>
-            <button aria-label="个人中心" onClick={() => setView("profile")} className="icon-btn"><UserRound size={17} /></button>
+            <div className="relative">
+              <button aria-label="打开账户菜单" aria-expanded={menuOpen} onClick={() => setMenuOpen((current) => !current)} className="flex h-10 items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--panel)] pl-1 pr-2">
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-[var(--wash)]"><UserRound size={16} /></span>
+                <ChevronDown className={`transition-transform ${menuOpen ? "rotate-180" : ""}`} size={14} />
+              </button>
+              {menuOpen && (
+                <>
+                  <button aria-label="关闭账户菜单" onClick={() => setMenuOpen(false)} className="fixed inset-0 z-40 cursor-default" />
+                  <div className="absolute right-0 top-12 z-50 w-72 rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-3 shadow-[0_22px_60px_rgba(10,30,23,.2)]">
+                    <div className="px-2 pb-3 pt-1">
+                      <div className="text-xs font-semibold">{wallet ? wallet.label : "Oracle Capital 用户"}</div>
+                      <div className="mt-1 truncate text-[10px] text-[var(--muted)]">{wallet ? wallet.address : "本地访客模式"}</div>
+                    </div>
+                    <button onClick={() => { setMenuOpen(false); setView("profile"); }} className="topic-row border-0 bg-transparent"><UserRound size={16} /><span className="flex-1 text-left">个人中心</span><ArrowRight size={14} /></button>
+                    <button onClick={() => { setMenuOpen(false); setView("home"); window.setTimeout(() => document.getElementById("history")?.scrollIntoView(), 0); }} className="topic-row border-0 bg-transparent"><History size={16} /><span className="flex-1 text-left">历史对话</span><span className="text-[10px] text-[var(--muted)]">{savedConversations.length}</span></button>
+                    <Link href="/docs" onClick={() => setMenuOpen(false)} className="topic-row border-0 bg-transparent"><BookOpen size={16} /><span className="flex-1 text-left">产品文档</span><ArrowRight size={14} /></Link>
+                    <div className="my-2 border-t border-[var(--line)]" />
+                    <div className="px-3 py-2 text-[10px] font-semibold tracking-[0.16em] text-[var(--muted)]">设置</div>
+                    <div className="grid grid-cols-2 gap-2 p-2">
+                      <button onClick={() => setLang(lang === "zh" ? "en" : "zh")} className="secondary-btn px-3"><Globe2 size={15} />{lang === "zh" ? "中文" : "English"}</button>
+                      <button onClick={() => setTheme(theme === "light" ? "dark" : "light")} className="secondary-btn px-3">{theme === "light" ? <Moon size={15} /> : <Sun size={15} />}{theme === "light" ? "夜间" : "日间"}</button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -240,11 +327,13 @@ export default function Home() {
           selected={selected}
           selectedMasters={selectedMasters}
           toggleMaster={toggleMaster}
-          onStart={() => selected.length && setView("chat")}
-          onTopic={(topic) => { setQuestion(topic); setView("chat"); }}
+          conversations={savedConversations}
+          onStart={() => selected.length && openNewConversation()}
+          onTopic={openNewConversation}
+          onOpenConversation={openSavedConversation}
         />
       )}
-      {view === "chat" && <ChatView selectedMasters={selectedMasters} initialQuestion={question} onBack={() => setView("home")} wallet={wallet} onNeedWallet={() => setWalletOpen(true)} notify={setToast} />}
+      {view === "chat" && <ChatView selectedMasters={selectedMasters} initialQuestion={question} initialConversationId={conversationToOpen} onRestoreMasters={setSelected} onBack={() => setView("home")} wallet={wallet} onNeedWallet={() => setWalletOpen(true)} notify={setToast} />}
       {view === "profile" && <ProfileView wallet={wallet} onNeedWallet={() => setWalletOpen(true)} notify={setToast} />}
       {walletOpen && <WalletModal connected={wallet} onClose={() => setWalletOpen(false)} onConnect={(value) => { setWallet(value); window.localStorage.setItem("oracle-capital-wallet", JSON.stringify(value)); setWalletOpen(false); setToast(`${value.label} 已连接`); }} onDisconnect={() => { setWallet(null); window.localStorage.removeItem("oracle-capital-wallet"); setWalletOpen(false); setToast("钱包已断开"); }} notify={setToast} />}
       {toast && <div className="fixed bottom-5 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-[var(--ink)] px-5 py-3 text-xs text-[var(--bg)] shadow-xl">{toast}</div>}
@@ -257,15 +346,19 @@ function HomeView({
   selected,
   selectedMasters,
   toggleMaster,
+  conversations,
   onStart,
   onTopic,
+  onOpenConversation,
 }: {
   t: typeof translations.zh;
   selected: string[];
   selectedMasters: Master[];
   toggleMaster: (id: string) => void;
+  conversations: SavedConversation[];
   onStart: () => void;
   onTopic: (topic: string) => void;
+  onOpenConversation: (conversation: SavedConversation) => void;
 }) {
   return (
     <>
@@ -316,6 +409,45 @@ function HomeView({
         </div>
       </section>
 
+      <section id="history" className="scroll-mt-24 border-t border-[var(--line)]">
+        <div className="mx-auto max-w-[1200px] px-5 py-14 lg:px-10">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <div className="section-label"><History size={14} /> 历史对话</div>
+              <h2 className="mt-3 font-serif text-3xl">继续上次的投资讨论</h2>
+              <p className="mt-2 text-xs text-[var(--muted)]">消息、委员会成员和最终方案都保存在当前浏览器。</p>
+            </div>
+            <button disabled={!conversations.length} onClick={() => conversations[0] && onOpenConversation(conversations[0])} className="secondary-btn">继续最近对话 <ArrowRight size={14} /></button>
+          </div>
+          {conversations.length ? (
+            <div className="mt-7 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {conversations.slice(0, 6).map((conversation) => {
+                const conversationMasters = conversation.masterIds
+                  .map((id) => masters.find((master) => master.id === id))
+                  .filter((master): master is Master => Boolean(master));
+                return (
+                  <button key={conversation.id} onClick={() => onOpenConversation(conversation)} className="stat-card text-left">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex -space-x-2">{conversationMasters.slice(0, 4).map((master) => <Avatar key={master.id} master={master} size="sm" />)}</div>
+                      <span className="text-[10px] text-[var(--muted)]">{new Date(conversation.updatedAt).toLocaleDateString("zh-CN")}</span>
+                    </div>
+                    <h3 className="mt-5 truncate font-serif text-lg">{conversation.title}</h3>
+                    <p className="mt-2 text-[10px] text-[var(--muted)]">{conversationMasters.map((master) => master.name).join(" · ") || "投资委员会"}</p>
+                    <div className="mt-5 flex items-center justify-between border-t border-[var(--line)] pt-4 text-xs text-[var(--green)]"><span>{conversation.messages.length} 条消息{conversation.decision ? " · 已形成方案" : ""}</span><ArrowRight size={14} /></div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="mt-7 rounded-2xl border border-dashed border-[var(--line)] bg-[var(--panel)] p-8 text-center">
+              <History className="mx-auto text-[var(--gold)]" size={22} />
+              <p className="mt-3 text-sm">还没有历史对话</p>
+              <p className="mt-2 text-xs text-[var(--muted)]">选择大师并发送第一条消息后，会自动出现在这里。</p>
+            </div>
+          )}
+        </div>
+      </section>
+
       <section id="topics" className="scroll-mt-24 border-t border-[var(--line)] bg-[var(--panel-soft)]">
         <div className="mx-auto grid max-w-[1200px] gap-12 px-5 py-16 lg:grid-cols-2 lg:px-10">
           <div>
@@ -362,6 +494,8 @@ function shortAddress(address: string) {
 function ChatView({
   selectedMasters,
   initialQuestion,
+  initialConversationId,
+  onRestoreMasters,
   onBack,
   wallet,
   onNeedWallet,
@@ -369,6 +503,8 @@ function ChatView({
 }: {
   selectedMasters: Master[];
   initialQuestion: string;
+  initialConversationId: string;
+  onRestoreMasters: (masterIds: string[]) => void;
   onBack: () => void;
   wallet: ConnectedWallet | null;
   onNeedWallet: () => void;
@@ -394,18 +530,30 @@ function ChatView({
   useEffect(() => {
     const raw = window.localStorage.getItem("oracle-capital-conversations");
     const timer = window.setTimeout(() => {
+      let conversations: SavedConversation[] = [];
       if (raw) {
         try {
-          setSavedConversations(JSON.parse(raw) as SavedConversation[]);
+          conversations = JSON.parse(raw) as SavedConversation[];
+          setSavedConversations(conversations);
         } catch {
           window.localStorage.removeItem("oracle-capital-conversations");
         }
       }
-      setConversationId(crypto.randomUUID());
+      const requested = conversations.find((conversation) => conversation.id === initialConversationId);
+      if (requested) {
+        setConversationId(requested.id);
+        setMessages(requested.messages);
+        setDecision(requested.decision ?? null);
+        setShowPlan(Boolean(requested.decision));
+        onRestoreMasters(requested.masterIds);
+        notify(`已恢复：${requested.title}`);
+      } else {
+        setConversationId(crypto.randomUUID());
+      }
       setStorageReady(true);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [initialConversationId, notify, onRestoreMasters]);
 
   useEffect(() => {
     if (!storageReady || !conversationId || messages.length <= 1) return;
@@ -441,6 +589,7 @@ function ChatView({
   };
 
   const loadConversation = (conversation: SavedConversation) => {
+    onRestoreMasters(conversation.masterIds);
     setConversationId(conversation.id);
     setMessages(conversation.messages);
     setDecision(conversation.decision ?? null);

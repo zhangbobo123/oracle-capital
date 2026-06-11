@@ -4,7 +4,7 @@ const isGitHubActions = process.env.STATIC_EXPORT === "true";
 const basePath = isGitHubActions ? "/oracle-capital" : "";
 
 const nextConfig: NextConfig = {
-  output: "export",
+  ...(isGitHubActions ? { output: "export" as const } : {}),
   basePath,
   assetPrefix: basePath,
   env: {

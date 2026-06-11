@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   ArrowLeft,
   ArrowRight,
@@ -155,9 +156,9 @@ export default function Home() {
         <div className="mx-auto flex h-20 max-w-[1440px] items-center justify-between px-5 lg:px-10">
           <button onClick={() => setView("home")}><BrandMark /></button>
           <nav className="hidden items-center gap-9 text-sm text-[var(--muted)] md:flex">
-            <button onClick={() => { setView("home"); window.setTimeout(() => document.querySelector("#topics")?.scrollIntoView(), 0); }} className="hover:text-[var(--ink)]">{t.navMarket}</button>
+            <Link href="/market" className="hover:text-[var(--ink)]">{t.navMarket}</Link>
             <button onClick={() => setView("home")} className="text-[var(--ink)]">{t.navMasters}</button>
-            <button onClick={() => { setView("home"); window.setTimeout(() => document.querySelector("#rankings")?.scrollIntoView(), 0); }} className="hover:text-[var(--ink)]">{t.navRank}</button>
+            <Link href="/rankings" className="hover:text-[var(--ink)]">{t.navRank}</Link>
           </nav>
           <div className="flex items-center gap-2">
             <button className="icon-btn" onClick={() => setLang(lang === "zh" ? "en" : "zh")} aria-label="Change language">

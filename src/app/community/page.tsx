@@ -36,6 +36,18 @@ const officialMasters: CommunityMaster[] = [
   { id: "hayek", name: "弗里德里希·哈耶克", en: "Friedrich Hayek", school: "货币竞争", quote: "价格是分散知识的信号。", risk: "激进", uses: 5180, author: "Oracle Capital", description: "从价格发现、去中心化知识和货币竞争观察 Web3。" },
   { id: "smith", name: "亚当·斯密", en: "Adam Smith", school: "市场机制", quote: "长期价值来自分工与交换。", risk: "稳健", uses: 4650, author: "Oracle Capital", description: "研究分工、激励、交换效率和网络价值。" },
   { id: "newton", name: "艾萨克·牛顿", en: "Isaac Newton", school: "量化周期", quote: "用规律观察市场，也敬畏疯狂。", risk: "均衡", uses: 3760, author: "Oracle Capital", description: "用数学规律和周期观察价格，同时警惕非理性泡沫。" },
+  { id: "graham", name: "本杰明·格雷厄姆", en: "Benjamin Graham", school: "安全边际", quote: "投资最大的敌人，很可能就是你自己。", risk: "稳健", uses: 11240, author: "Oracle Capital", description: "以安全边际、资产价值和市场先生框架审视投资。" },
+  { id: "dalio", name: "瑞·达利欧", en: "Ray Dalio", school: "全天候配置", quote: "痛苦加反思，等于进步。", risk: "均衡", uses: 10320, author: "Oracle Capital", description: "从经济机器、风险平价和不同宏观环境构建组合。" },
+  { id: "soros", name: "乔治·索罗斯", en: "George Soros", school: "反身性", quote: "重要的不是你是否正确，而是正确时赚多少。", risk: "激进", uses: 9780, author: "Oracle Capital", description: "关注认知与市场相互影响产生的趋势、失衡和拐点。" },
+  { id: "fisher", name: "菲利普·费雪", en: "Philip Fisher", school: "成长研究", quote: "优秀公司值得用时间耐心持有。", risk: "均衡", uses: 6350, author: "Oracle Capital", description: "深入研究管理层、研发、市场空间和长期成长质量。" },
+  { id: "bogle", name: "约翰·博格", en: "John Bogle", school: "指数投资", quote: "不要在草堆里找针，买下整个草堆。", risk: "稳健", uses: 8240, author: "Oracle Capital", description: "强调低成本、广泛分散、长期持有和减少交易摩擦。" },
+  { id: "templeton", name: "约翰·邓普顿", en: "John Templeton", school: "全球逆向", quote: "最悲观的时候，往往是最佳买点。", risk: "均衡", uses: 4870, author: "Oracle Capital", description: "在全球市场寻找被极端悲观情绪低估的资产。" },
+  { id: "livermore", name: "杰西·利弗莫尔", en: "Jesse Livermore", school: "趋势交易", quote: "赚大钱靠的从来不是思考，而是等待。", risk: "激进", uses: 7560, author: "Oracle Capital", description: "观察趋势、关键价位、仓位管理和市场行为。" },
+  { id: "thiel", name: "彼得·蒂尔", en: "Peter Thiel", school: "垄断创新", quote: "从零到一，创造此前不存在的价值。", risk: "激进", uses: 5980, author: "Oracle Capital", description: "寻找拥有独特技术、网络效应和长期垄断能力的创新。" },
+  { id: "musk", name: "埃隆·马斯克", en: "Elon Musk", school: "第一性原理", quote: "从基本事实出发，而不是类比推理。", risk: "激进", uses: 13680, author: "Oracle Capital", description: "用第一性原理拆解成本、技术可行性和规模化路径。" },
+  { id: "taleb", name: "纳西姆·塔勒布", en: "Nassim Taleb", school: "反脆弱", quote: "风会熄灭蜡烛，却能让火焰更旺。", risk: "均衡", uses: 9140, author: "Oracle Capital", description: "重视尾部风险、可选性、杠铃策略和从波动中获益。" },
+  { id: "howard-marks", name: "霍华德·马克斯", en: "Howard Marks", school: "周期与风险", quote: "你无法预测，但可以准备。", risk: "稳健", uses: 7070, author: "Oracle Capital", description: "关注市场周期、风险定价、投资者心理和防守能力。" },
+  { id: "cathie-wood", name: "凯茜·伍德", en: "Cathie Wood", school: "颠覆式创新", quote: "创新会在共识形成之前重塑市场。", risk: "激进", uses: 8610, author: "Oracle Capital", description: "研究人工智能、机器人、能源和区块链等颠覆式创新。" },
 ];
 
 const isCommunityMaster = (value: unknown): value is CommunityMaster => {

@@ -159,10 +159,13 @@ DeepSeek 失败时：
 
 ## 8. 市场面板
 
-- 价格：DefiLlama Coins。
+- 行情：CoinGecko，包含价格、24h/7d 涨跌、市值、成交量、日内高低、历史高点和 7 日走势；CoinGecko 不可用时使用 DefiLlama Coins 的 168 小时真实价格序列计算涨跌、日内区间和走势。
 - TVL：DefiLlama Chains。
 - 价格缓存约 60 秒，TVL 缓存约 300 秒。
-- 当前数据源没有返回 24h 涨跌、市值或成交量时显示“—”，不填充假数据。
+- 顶部展示核心资产总市值、24h 成交量、三链 TVL 和市场温度。
+- 支持 24h/7d 周期切换、资产收藏、日内价格区间和相对强势信号。
+- 展示 Ethereum、BSC、Solana 的 TVL、TVL/市值和流动性占比。
+- 数据缺失时显示“—”，不填充假数据。
 - 支持手动刷新。
 - 每个资产可跳转到 AI 委员会并自动带入分析问题。
 - 研究入口：OpenClue、DefiLlama、Dune、Nansen。

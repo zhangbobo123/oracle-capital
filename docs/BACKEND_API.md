@@ -73,9 +73,10 @@
 
 ### `GET /api/market`
 
-- DefiLlama Coins：ETH、BNB、SOL 价格，约 60 秒缓存。
+- CoinGecko：优先读取 ETH、BNB、SOL 的完整市场行情。
+- DefiLlama Coins：提供即时价格和 168 小时历史价格回退，用于计算 24h/7d 涨跌、日内区间和 7 日走势。
 - DefiLlama Chains：Ethereum、BSC、Solana TVL，约 300 秒缓存。
-- 价格失败时返回 `null`，不使用静态假数据。
+- 市值、成交量等字段在上游未返回时为 `null`，不使用静态假数据。
 - 返回 `updatedAt` 和数据源列表。
 
 ### `GET /api/portfolio`

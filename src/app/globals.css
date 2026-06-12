@@ -173,6 +173,56 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   background: var(--green);
   clip-path: polygon(0 78%, 9% 68%, 18% 72%, 27% 51%, 37% 58%, 46% 38%, 57% 45%, 68% 24%, 78% 31%, 88% 12%, 100% 2%, 100% 8%, 88% 18%, 78% 38%, 68% 31%, 57% 52%, 46% 45%, 37% 65%, 27% 58%, 18% 79%, 9% 75%, 0 85%);
 }
+.market-hero {
+  background:
+    radial-gradient(circle at 86% 15%, color-mix(in srgb, var(--green) 15%, transparent), transparent 25%),
+    radial-gradient(circle at 15% 75%, color-mix(in srgb, var(--gold) 12%, transparent), transparent 28%),
+    linear-gradient(135deg, var(--bg), color-mix(in srgb, var(--panel-soft) 55%, var(--bg)));
+}
+.market-metric {
+  min-height: 155px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel-glass);
+  padding: 20px;
+  box-shadow: 0 14px 40px rgba(22, 57, 45, .06);
+}
+.market-metric > div:first-child { color: var(--muted); font-size: 11px; }
+.market-metric > strong { display: block; margin-top: 20px; font-family: Georgia, "Times New Roman", serif; font-size: 28px; }
+.market-metric > p { margin-top: 8px; color: var(--muted); font-size: 10px; }
+.market-asset-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--panel);
+  padding: 24px;
+  box-shadow: 0 18px 52px rgba(22, 57, 45, .07);
+  transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease;
+}
+.market-asset-card::before {
+  position: absolute;
+  top: 0;
+  left: 12%;
+  width: 76%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--asset-color), transparent);
+  content: "";
+}
+.market-asset-card:hover {
+  transform: translateY(-4px);
+  border-color: color-mix(in srgb, var(--asset-color) 45%, var(--line));
+  box-shadow: 0 24px 64px rgba(22, 57, 45, .12);
+}
+.research-card {
+  min-height: 240px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+  padding: 22px;
+  transition: transform .2s ease, border-color .2s ease;
+}
+.research-card:hover { transform: translateY(-4px); border-color: var(--green); }
 @keyframes pulse { 50% { opacity: .35; } }
 @keyframes orbit-float {
   0%, 100% { translate: 0 0; }

@@ -131,7 +131,10 @@ const chapters: DocChapter[] = [
     intro: "个人中心同时提供模拟盘和真实钱包两种模式，帮助用户分别体验策略和查看公开链上资产。",
     icon: Wallet,
     items: [
-      { title: "模拟盘", description: "默认提供 10,000 美元模拟资金，支持模拟充值、提现和资金流水查看。" },
+      { title: "默认模拟资产", description: "模拟账户默认持有 Ethereum 网络下的 10,000 USDC，作为充值、提现和策略配置的结算资产。" },
+      { title: "AI 方案联动", description: "在对话中确认模拟执行后，方案配置会直接写入个人中心持仓，并同步更新资产占比、链分布和最近共识。" },
+      { title: "数据分析面板", description: "展示总资产、可用 USDC、已投入策略、盈亏、资金利用率、稳定币占比、最大仓位和组合风险。" },
+      { title: "持仓与轨迹", description: "提供模拟持仓明细、配置逻辑、净值轨迹以及充值、提现和策略执行流水。" },
       { title: "模拟提现费用", description: "模拟提现按照提现金额收取 0.01% 手续费，仅作用于模拟余额。" },
       { title: "钱包连接", description: "支持 MetaMask 及兼容 EVM 钱包，也支持 Phantom Solana 钱包。" },
       { title: "资产显示", description: "可读取并展示钱包中的 ETH、BNB 和 SOL 原生资产余额。" },

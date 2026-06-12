@@ -69,6 +69,103 @@ type ConnectedWallet = {
   kind: "evm" | "solana";
 };
 
+type SimulationTransaction = {
+  id: string;
+  type: "deposit" | "withdraw" | "strategy";
+  amount: number;
+  fee: number;
+  label?: string;
+  createdAt: number;
+};
+
+type SimulationPosition = {
+  id: string;
+  label: string;
+  symbol: string;
+  chain: "Ethereum" | "BNB Chain" | "Solana";
+  value: number;
+  costBasis: number;
+  rationale: string;
+};
+
+type SimulationAccount = {
+  positions: SimulationPosition[];
+  transactions: SimulationTransaction[];
+  snapshots: { value: number; createdAt: number }[];
+  lastStrategy?: {
+    title: string;
+    consensusRate: number;
+    riskLevel: CommitteeDecision["riskLevel"];
+    executedAt: number;
+  };
+};
+
+const defaultSimulationAccount = (): SimulationAccount => ({
+  positions: [{
+    id: "ethereum-usdc",
+    label: "USD Coin",
+    symbol: "USDC",
+    chain: "Ethereum",
+    value: 10000,
+    costBasis: 10000,
+    rationale: "默认模拟资产与策略结算资金",
+  }],
+  transactions: [],
+  snapshots: [{ value: 10000, createdAt: Date.now() }],
+});
+
+const simulationTotal = (account: SimulationAccount) => account.positions.reduce((sum, position) => sum + position.value, 0);
+
+function loadSimulationAccount(): SimulationAccount {
+  const raw = window.localStorage.getItem("oracle-capital-simulation");
+  if (!raw) return defaultSimulationAccount();
+  try {
+    const parsed = JSON.parse(raw) as Partial<SimulationAccount> & { balance?: number };
+    if (Array.isArray(parsed.positions)) {
+      return {
+        positions: parsed.positions,
+        transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
+        snapshots: Array.isArray(parsed.snapshots) && parsed.snapshots.length ? parsed.snapshots : [{ value: parsed.positions.reduce((sum, item) => sum + item.value, 0), createdAt: Date.now() }],
+        lastStrategy: parsed.lastStrategy,
+      };
+    }
+    const migrated = defaultSimulationAccount();
+    migrated.positions[0].value = Number(parsed.balance) || 10000;
+    migrated.positions[0].costBasis = migrated.positions[0].value;
+    migrated.transactions = Array.isArray(parsed.transactions) ? parsed.transactions : [];
+    migrated.snapshots = [{ value: migrated.positions[0].value, createdAt: Date.now() }];
+    return migrated;
+  } catch {
+    window.localStorage.removeItem("oracle-capital-simulation");
+    return defaultSimulationAccount();
+  }
+}
+
+function saveSimulationAccount(account: SimulationAccount) {
+  window.localStorage.setItem("oracle-capital-simulation", JSON.stringify(account));
+  window.dispatchEvent(new CustomEvent("oracle-capital-simulation-updated"));
+}
+
+function allocationPosition(item: CommitteeDecision["allocations"][number], total: number): SimulationPosition {
+  const normalized = item.label.toUpperCase();
+  const stable = /USDC|USDT|现金|机动|稳定/.test(normalized);
+  const chain: SimulationPosition["chain"] = /SOL|SOLANA/.test(normalized)
+    ? "Solana"
+    : /BNB|BSC/.test(normalized)
+      ? "BNB Chain"
+      : "Ethereum";
+  const symbol = stable ? "USDC" : (normalized.match(/\b[A-Z]{2,6}\b/)?.[0] ?? item.label.slice(0, 8));
+  return {
+    id: `${chain}-${symbol}-${crypto.randomUUID()}`,
+    label: stable ? "USD Coin" : item.label,
+    symbol,
+    chain: stable ? "Ethereum" : chain,
+    value: total * item.percentage / 100,
+    costBasis: total * item.percentage / 100,
+    rationale: item.rationale,
+  };
+}
+
 declare global {
   interface Window {
     ethereum?: {
@@ -1045,14 +1142,32 @@ function TradePreview({ onBack, decision, wallet, onNeedWallet, notify }: { onBa
   const [accepted, setAccepted] = useState(false);
   const [status, setStatus] = useState<"ready" | "signing" | "done">("ready");
   const execute = () => {
-    if (!wallet) {
-      onNeedWallet();
-      return;
-    }
     setStatus("signing");
     window.setTimeout(() => {
+      const current = loadSimulationAccount();
+      const total = simulationTotal(current);
+      const positions = decision.allocations.map((item) => allocationPosition(item, total));
+      const next: SimulationAccount = {
+        positions,
+        transactions: [{
+          id: crypto.randomUUID(),
+          type: "strategy" as const,
+          amount: total,
+          fee: 0,
+          label: decision.title,
+          createdAt: Date.now(),
+        }, ...current.transactions].slice(0, 30),
+        snapshots: [...current.snapshots, { value: total, createdAt: Date.now() }].slice(-30),
+        lastStrategy: {
+          title: decision.title,
+          consensusRate: decision.consensusRate,
+          riskLevel: decision.riskLevel,
+          executedAt: Date.now(),
+        },
+      };
+      saveSimulationAccount(next);
       setStatus("done");
-      notify("模拟交易完成，没有广播到链上");
+      notify("模拟方案已写入个人中心持仓");
     }, 1200);
   };
   return (
@@ -1070,20 +1185,13 @@ function TradePreview({ onBack, decision, wallet, onNeedWallet, notify }: { onBa
         <input checked={accepted} onChange={(event) => setAccepted(event.target.checked)} type="checkbox" className="mt-1 accent-[var(--green)]" /> 我已阅读风险摘要，并理解这是黑客松模拟交易，不会广播到链上。
       </label>
       <button disabled={!accepted || status !== "ready"} onClick={execute} className="primary-btn mt-5 w-full">
-        {status === "signing" ? <LoaderCircle className="animate-spin" size={16} /> : <Wallet size={16} />}
-        {status === "signing" ? "等待模拟签名..." : status === "done" ? "模拟交易完成" : wallet ? `使用 ${wallet.label} 模拟签名` : "连接钱包后模拟签名"}
+        {status === "signing" ? <LoaderCircle className="animate-spin" size={16} /> : <CircleDollarSign size={16} />}
+        {status === "signing" ? "正在更新模拟持仓..." : status === "done" ? "已同步到个人中心" : "确认模拟执行"}
       </button>
+      {!wallet && <button onClick={onNeedWallet} className="mt-3 w-full text-center text-[10px] text-[var(--muted)] hover:text-[var(--ink)]">可选：连接钱包查看真实资产</button>}
     </div>
   );
 }
-
-type SimulationTransaction = {
-  id: string;
-  type: "deposit" | "withdraw";
-  amount: number;
-  fee: number;
-  createdAt: number;
-};
 
 type WalletBalance = {
   chain: string;
@@ -1095,32 +1203,61 @@ function ProfileView({ wallet, onNeedWallet, notify }: { wallet: ConnectedWallet
   const [hidden, setHidden] = useState(true);
   const [showAll, setShowAll] = useState(false);
   const [mode, setMode] = useState<"simulation" | "wallet">("simulation");
-  const [simulationBalance, setSimulationBalance] = useState(10000);
-  const [transactions, setTransactions] = useState<SimulationTransaction[]>([]);
+  const [account, setAccount] = useState<SimulationAccount>({
+    positions: [{ id: "ethereum-usdc", label: "USD Coin", symbol: "USDC", chain: "Ethereum", value: 10000, costBasis: 10000, rationale: "默认模拟资产与策略结算资金" }],
+    transactions: [],
+    snapshots: [],
+  });
   const [cashAction, setCashAction] = useState<"deposit" | "withdraw" | null>(null);
   const [amount, setAmount] = useState("");
   const [walletBalances, setWalletBalances] = useState<WalletBalance[]>([]);
   const [portfolioLoading, setPortfolioLoading] = useState(false);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const raw = window.localStorage.getItem("oracle-capital-simulation");
-      if (!raw) return;
-      try {
-        const saved = JSON.parse(raw) as { balance: number; transactions: SimulationTransaction[] };
-        setSimulationBalance(saved.balance);
-        setTransactions(saved.transactions);
-      } catch {
-        window.localStorage.removeItem("oracle-capital-simulation");
-      }
-    }, 0);
-    return () => window.clearTimeout(timer);
+    const refresh = () => setAccount(loadSimulationAccount());
+    const timer = window.setTimeout(refresh, 0);
+    window.addEventListener("oracle-capital-simulation-updated", refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("oracle-capital-simulation-updated", refresh);
+      window.removeEventListener("storage", refresh);
+    };
   }, []);
 
-  const saveSimulation = (balance: number, nextTransactions: SimulationTransaction[]) => {
-    setSimulationBalance(balance);
-    setTransactions(nextTransactions);
-    window.localStorage.setItem("oracle-capital-simulation", JSON.stringify({ balance, transactions: nextTransactions }));
+  const persistAccount = (next: SimulationAccount) => {
+    setAccount(next);
+    saveSimulationAccount(next);
+  };
+
+  const totalValue = simulationTotal(account);
+  const totalCost = account.positions.reduce((sum, position) => sum + position.costBasis, 0);
+  const unrealizedPnl = totalValue - totalCost;
+  const usdcValue = account.positions.filter((position) => position.symbol === "USDC").reduce((sum, position) => sum + position.value, 0);
+  const investedValue = Math.max(0, totalValue - usdcValue);
+  const stableRatio = totalValue ? usdcValue / totalValue * 100 : 0;
+  const concentration = totalValue ? Math.max(...account.positions.map((position) => position.value / totalValue * 100), 0) : 0;
+  const chainAllocation = (["Ethereum", "BNB Chain", "Solana"] as const).map((chain) => ({
+    chain,
+    value: account.positions.filter((position) => position.chain === chain).reduce((sum, position) => sum + position.value, 0),
+  })).filter((item) => item.value > 0);
+  const riskLabel = concentration > 70 && stableRatio < 40 ? "集中度偏高" : stableRatio >= 60 ? "防守型" : "均衡型";
+  const trendValues = account.snapshots.length
+    ? account.snapshots.slice(-12).map((snapshot) => snapshot.value)
+    : [totalValue];
+  const trendMin = Math.min(...trendValues, totalValue) * 0.995;
+  const trendMax = Math.max(...trendValues, totalValue) * 1.005;
+  const trendRange = Math.max(1, trendMax - trendMin);
+  const trendPoints = [...trendValues, totalValue].map((value, index, values) => {
+    const x = values.length === 1 ? 50 : index / (values.length - 1) * 100;
+    const y = 90 - (value - trendMin) / trendRange * 75;
+    return `${x},${y}`;
+  }).join(" ");
+
+  const saveCashAction = (next: SimulationAccount) => {
+    const total = simulationTotal(next);
+    next.snapshots = [...next.snapshots, { value: total, createdAt: Date.now() }].slice(-30);
+    persistAccount(next);
   };
 
   const submitCashAction = () => {
@@ -1130,22 +1267,39 @@ function ProfileView({ wallet, onNeedWallet, notify }: { wallet: ConnectedWallet
       return;
     }
     const fee = cashAction === "withdraw" ? value * 0.0001 : 0;
-    if (cashAction === "withdraw" && value + fee > simulationBalance) {
-      notify("模拟盘可用余额不足");
+    const required = value + fee;
+    if (cashAction === "withdraw" && required > usdcValue) {
+      notify("Ethereum USDC 可用余额不足");
       return;
     }
-    const nextBalance = cashAction === "deposit"
-      ? simulationBalance + value
-      : simulationBalance - value - fee;
-    const nextTransactions = [{
-      id: crypto.randomUUID(),
-      type: cashAction,
-      amount: value,
-      fee,
-      createdAt: Date.now(),
-    }, ...transactions].slice(0, 30);
-    saveSimulation(nextBalance, nextTransactions);
-    notify(cashAction === "deposit" ? "模拟充值成功" : `模拟提现成功，手续费 $${fee.toFixed(2)}`);
+    const positions = account.positions.map((position) => ({ ...position }));
+    let usdc = positions.find((position) => position.symbol === "USDC" && position.chain === "Ethereum");
+    if (!usdc) {
+      usdc = { id: "ethereum-usdc", label: "USD Coin", symbol: "USDC", chain: "Ethereum", value: 0, costBasis: 0, rationale: "模拟盘结算资金" };
+      positions.unshift(usdc);
+    }
+    if (cashAction === "deposit") {
+      usdc.value += value;
+      usdc.costBasis += value;
+    } else {
+      usdc.value -= required;
+      usdc.costBasis = Math.max(0, usdc.costBasis - required);
+    }
+    const next: SimulationAccount = {
+      ...account,
+      positions: positions.filter((position) => position.value > 0.0001),
+      transactions: [{
+        id: crypto.randomUUID(),
+        type: cashAction,
+        amount: value,
+        fee,
+        label: "Ethereum / USDC",
+        createdAt: Date.now(),
+      }, ...account.transactions].slice(0, 30),
+      snapshots: [...account.snapshots],
+    };
+    saveCashAction(next);
+    notify(cashAction === "deposit" ? "USDC 模拟充值成功" : `USDC 模拟提现成功，手续费 $${fee.toFixed(2)}`);
     setAmount("");
     setCashAction(null);
   };
@@ -1176,15 +1330,10 @@ function ProfileView({ wallet, onNeedWallet, notify }: { wallet: ConnectedWallet
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, wallet?.address]);
 
-  const allocation = useMemo(() => [
-    ["Ethereum", "62%", "bg-[#265c46]"],
-    ["BNB Chain", "21%", "bg-[#b08b45]"],
-    ["Solana", "17%", "bg-[#8771a8]"],
-  ], []);
   return (
     <div className="mx-auto max-w-[1100px] px-5 py-12 lg:px-10">
       <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
-        <div><div className="section-label">个人中心</div><h1 className="mt-3 font-serif text-4xl">资产与资金账户</h1><p className="mt-2 text-xs text-[var(--muted)]">{mode === "simulation" ? "模拟盘资金不会进入链上，可自由充值和提现测试。" : "真实资产直接从已连接钱包的公开链上余额读取。"}</p></div>
+        <div><div className="section-label">个人中心</div><h1 className="mt-3 font-serif text-4xl">资产分析中心</h1><p className="mt-2 text-xs text-[var(--muted)]">{mode === "simulation" ? "模拟账户默认以 Ethereum USDC 结算，并与 AI 方案模拟执行实时联动。" : "真实资产直接从已连接钱包的公开链上余额读取。"}</p></div>
         <button onClick={() => setHidden(!hidden)} className="secondary-btn">{hidden ? "显示资产" : "隐藏资产"}</button>
       </div>
       <div className="mt-7 inline-flex rounded-full border border-[var(--line)] bg-[var(--panel)] p-1">
@@ -1193,41 +1342,39 @@ function ProfileView({ wallet, onNeedWallet, notify }: { wallet: ConnectedWallet
       </div>
 
       {mode === "simulation" ? <>
-      <div className="mt-8 grid gap-4 md:grid-cols-3">
-        {[["模拟可用资产", `$${simulationBalance.toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "初始资金 $10,000"], ["模拟累计收益", "$0.00", "等待策略执行"], ["提现手续费", "0.01%", "仅模拟盘当前生效"]].map((item) => (
-          <div key={item[0]} className="stat-card">
-            <div className="text-xs text-[var(--muted)]">{item[0]}</div>
-            <div className={`mt-3 font-serif text-3xl ${hidden ? "blur-md select-none" : ""}`}>{item[1]}</div>
-            <div className="mt-2 text-xs text-[var(--positive)]">{item[2]}</div>
-          </div>
-        ))}
+      <div className="mt-8 rounded-2xl border border-[var(--line)] bg-[var(--green)] p-6 text-[var(--bg)] shadow-xl">
+        <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+          <div><div className="text-[10px] tracking-[0.18em] opacity-70">SIMULATION PORTFOLIO</div><div className={`mt-3 font-serif text-5xl ${hidden ? "blur-md select-none" : ""}`}>${totalValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div><div className="mt-2 text-xs opacity-70">总资产 · 默认结算资产 Ethereum / USDC</div></div>
+          <div className="grid grid-cols-2 gap-6 text-xs md:grid-cols-3"><div><span className="opacity-60">可用 USDC</span><strong className="mt-1 block text-base">${usdcValue.toLocaleString("en-US", { maximumFractionDigits: 2 })}</strong></div><div><span className="opacity-60">已投入策略</span><strong className="mt-1 block text-base">${investedValue.toLocaleString("en-US", { maximumFractionDigits: 2 })}</strong></div><div><span className="opacity-60">未实现盈亏</span><strong className="mt-1 block text-base">{unrealizedPnl >= 0 ? "+" : ""}${unrealizedPnl.toFixed(2)}</strong></div></div>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[["资金利用率", `${totalValue ? (investedValue / totalValue * 100).toFixed(1) : "0.0"}%`, "非 USDC 策略仓位"], ["稳定币占比", `${stableRatio.toFixed(1)}%`, "Ethereum USDC"], ["最大仓位", `${concentration.toFixed(1)}%`, riskLabel], ["最近共识", account.lastStrategy ? `${account.lastStrategy.consensusRate}%` : "—", account.lastStrategy?.title ?? "尚未执行 AI 方案"]].map(([label, value, note]) => <div key={label} className="stat-card"><div className="text-xs text-[var(--muted)]">{label}</div><div className="mt-3 font-serif text-3xl">{value}</div><div className="mt-2 truncate text-[10px] text-[var(--positive)]">{note}</div></div>)}
       </div>
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         <button onClick={() => setCashAction("deposit")} className="stat-card flex items-center gap-4 text-left"><span className="grid h-12 w-12 place-items-center rounded-full bg-[var(--wash)]"><ArrowDownToLine size={20} /></span><span><strong>模拟充值</strong><span className="mt-1 block text-xs text-[var(--muted)]">即时增加模拟盘可用余额</span></span></button>
-        <button onClick={() => setCashAction("withdraw")} className="stat-card flex items-center gap-4 text-left"><span className="grid h-12 w-12 place-items-center rounded-full bg-[var(--wash)]"><ArrowUpFromLine size={20} /></span><span><strong>随时提现</strong><span className="mt-1 block text-xs text-[var(--muted)]">收取提现金额的 0.01%</span></span></button>
+        <button onClick={() => setCashAction("withdraw")} className="stat-card flex items-center gap-4 text-left"><span className="grid h-12 w-12 place-items-center rounded-full bg-[var(--wash)]"><ArrowUpFromLine size={20} /></span><span><strong>USDC 提现</strong><span className="mt-1 block text-xs text-[var(--muted)]">从 Ethereum USDC 扣款，手续费 0.01%</span></span></button>
       </div>
       {cashAction && <div className="mt-4 plan-card"><div className="flex items-center justify-between"><div><div className="section-label">{cashAction === "deposit" ? "模拟充值" : "模拟提现"}</div><h2 className="mt-2 font-serif text-2xl">输入金额</h2></div><button onClick={() => setCashAction(null)} className="icon-btn"><X size={16} /></button></div><div className="mt-5 flex gap-2"><input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" placeholder="0.00 USD" className="min-w-0 flex-1 rounded-full border border-[var(--line)] bg-transparent px-5 text-sm outline-none" /><button onClick={submitCashAction} className="primary-btn">确认{cashAction === "deposit" ? "充值" : "提现"}</button></div>{cashAction === "withdraw" && <p className="mt-3 text-xs text-[var(--muted)]">预计手续费：${((Number(amount) || 0) * 0.0001).toFixed(4)}，到账金额：${Math.max(0, (Number(amount) || 0)).toFixed(2)}</p>}</div>}
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_.6fr]">
+      <div className="mt-4 grid gap-4 lg:grid-cols-[1.25fr_.75fr]">
         <div className="stat-card">
-          <div className="flex items-center justify-between"><h2 className="font-serif text-xl">资产趋势</h2><span className="text-xs text-[var(--muted)]">近 30 日</span></div>
-          <div className="chart mt-8 h-56"><div className="chart-line" /></div>
+          <div className="flex items-center justify-between"><div><h2 className="font-serif text-xl">组合净值轨迹</h2><p className="mt-1 text-[10px] text-[var(--muted)]">充值、提现和策略执行节点</p></div><span className="text-xs text-[var(--muted)]">{account.snapshots.length} 个数据点</span></div>
+          <div className="mt-8 h-56 rounded-xl bg-[var(--panel-soft)] p-4"><svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full overflow-visible"><line x1="0" y1="90" x2="100" y2="90" stroke="var(--line)" strokeWidth="0.5" /><line x1="0" y1="52" x2="100" y2="52" stroke="var(--line)" strokeWidth="0.5" /><polyline points={trendPoints} fill="none" stroke="var(--green)" strokeWidth="2.2" vectorEffect="non-scaling-stroke" /></svg></div>
         </div>
         <div className="stat-card">
-          <h2 className="font-serif text-xl">链上分布</h2>
-          <div className="mt-7 space-y-5">
-            {allocation.map(([name, value, color]) => (
-              <div key={name}>
-                <div className="mb-2 flex justify-between text-xs"><span>{name}</span><span>{value}</span></div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-[var(--wash)]"><div className={`h-full ${color}`} style={{ width: value }} /></div>
-              </div>
-            ))}
-          </div>
+          <h2 className="font-serif text-xl">链与风险分析</h2>
+          <div className="mt-6 space-y-5">{chainAllocation.map((item) => { const percentage = totalValue ? item.value / totalValue * 100 : 0; return <div key={item.chain}><div className="mb-2 flex justify-between text-xs"><span>{item.chain}</span><span>{percentage.toFixed(1)}%</span></div><div className="h-1.5 overflow-hidden rounded-full bg-[var(--wash)]"><div className="h-full bg-[var(--green)]" style={{ width: `${percentage}%` }} /></div></div>; })}</div>
+          <div className="mt-6 border-t border-[var(--line)] pt-5 text-xs leading-6"><div className="flex justify-between"><span className="text-[var(--muted)]">组合类型</span><strong>{riskLabel}</strong></div><div className="flex justify-between"><span className="text-[var(--muted)]">活跃网络</span><strong>{chainAllocation.length}</strong></div><div className="flex justify-between"><span className="text-[var(--muted)]">策略风险</span><strong>{account.lastStrategy?.riskLevel ?? "稳健"}</strong></div></div>
         </div>
+      </div>
+      <div className="mt-4 stat-card">
+        <div className="flex items-center justify-between"><div><h2 className="font-serif text-xl">模拟持仓明细</h2><p className="mt-1 text-[10px] text-[var(--muted)]">AI 方案执行后自动更新</p></div><span className="rounded-full bg-[var(--wash)] px-3 py-1 text-[10px]">{account.positions.length} 项资产</span></div>
+        <div className="mt-5 overflow-x-auto"><div className="min-w-[620px]"><div className="grid grid-cols-[1.3fr_.8fr_.8fr_.8fr_1.4fr] border-b border-[var(--line)] pb-3 text-[10px] text-[var(--muted)]"><span>资产</span><span>网络</span><span>价值</span><span>占比</span><span>配置逻辑</span></div>{[...account.positions].sort((a, b) => b.value - a.value).map((position) => <div key={position.id} className="grid grid-cols-[1.3fr_.8fr_.8fr_.8fr_1.4fr] items-center border-b border-[var(--line)] py-4 text-xs last:border-0"><div><strong>{position.symbol}</strong><span className="mt-1 block text-[10px] text-[var(--muted)]">{position.label}</span></div><span>{position.chain}</span><span>${position.value.toLocaleString("en-US", { maximumFractionDigits: 2 })}</span><span>{totalValue ? (position.value / totalValue * 100).toFixed(1) : "0.0"}%</span><span className="truncate text-[10px] text-[var(--muted)]">{position.rationale}</span></div>)}</div></div>
       </div>
       <div className="mt-4 stat-card">
         <div className="flex items-center justify-between"><h2 className="font-serif text-xl">模拟资金流水</h2><button onClick={() => setShowAll(!showAll)} className="text-xs text-[var(--green)]">{showAll ? "收起" : "查看全部"}</button></div>
         <div className="mt-5 divide-y divide-[var(--line)]">
-          {transactions.length ? transactions.slice(0, showAll ? transactions.length : 3).map((item) => <div key={item.id} className="flex items-center gap-4 py-4 text-sm"><span className="text-[var(--green)]">{item.type === "deposit" ? <ArrowDownToLine size={16} /> : <ArrowUpFromLine size={16} />}</span><span className="flex-1">{item.type === "deposit" ? "模拟充值" : "模拟提现"}</span><span className="text-xs text-[var(--muted)]">{new Date(item.createdAt).toLocaleString("zh-CN")}</span><span className="w-28 text-right text-xs">{item.type === "deposit" ? "+" : "-"}${item.amount.toFixed(2)}{item.fee > 0 ? ` · 费 $${item.fee.toFixed(2)}` : ""}</span></div>) : <p className="py-5 text-sm text-[var(--muted)]">暂无流水。你可以先进行一笔模拟充值。</p>}
+          {account.transactions.length ? account.transactions.slice(0, showAll ? account.transactions.length : 4).map((item) => <div key={item.id} className="flex items-center gap-4 py-4 text-sm"><span className="text-[var(--green)]">{item.type === "deposit" ? <ArrowDownToLine size={16} /> : item.type === "withdraw" ? <ArrowUpFromLine size={16} /> : <Sparkles size={16} />}</span><span className="flex-1">{item.type === "deposit" ? "USDC 模拟充值" : item.type === "withdraw" ? "USDC 模拟提现" : `执行策略：${item.label ?? "AI 方案"}`}</span><span className="text-xs text-[var(--muted)]">{new Date(item.createdAt).toLocaleString("zh-CN")}</span><span className="w-28 text-right text-xs">{item.type === "deposit" ? "+" : item.type === "withdraw" ? "-" : ""}${item.amount.toFixed(2)}{item.fee > 0 ? ` · 费 $${item.fee.toFixed(2)}` : ""}</span></div>) : <p className="py-5 text-sm text-[var(--muted)]">暂无流水。默认资产为 Ethereum USDC $10,000。</p>}
         </div>
       </div>
       </> : <>

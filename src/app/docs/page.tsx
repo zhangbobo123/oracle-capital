@@ -1,244 +1,274 @@
 "use client";
 
-import { useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
   BarChart3,
   Bot,
-  Check,
-  Heart,
+  ChevronRight,
   History,
-  Search,
+  Menu,
+  Orbit,
   ShieldCheck,
-  Sparkles,
   Upload,
   Users,
   Wallet,
+  X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-const status = {
-  live: "已上线",
-  local: "本地演示",
-  planned: "待接入",
-  required: "生产前必需",
+type DocItem = {
+  title: string;
+  description: string;
+  details?: string[];
 };
 
-const features: [string, string, LucideIcon, string][] = [
-  ["动态人物星图", "8 位官方人物以可拖拽圆形球展示。球体直径使用 log10(使用次数 + 1) 归一化；拖动松手后按惯性运动，支持摩擦减速、边界反弹和球体碰撞。", Users, status.live],
-  ["人物搜索", "支持按中文名、英文名、投资流派和角色语录搜索，输入后即时过滤人物球。", Search, status.live],
-  ["点赞与评论", "点赞和评论统一位于人物社区卡片，不占用首页人物球空间；数据保存在当前浏览器。", Heart, status.local],
-  ["AI 投资委员会", "可选择 1 位人物单聊，或选择至少 3 位人物组成委员会；恰好选择 2 位时暂不允许开始。", Bot, status.live],
-  ["历史恢复", "自动保存最近 20 个会话，并恢复原人物组合、消息、投票、共识率和最终方案。", History, status.live],
-  ["人物社区", "社区顶部按使用次数展示排行榜，支持搜索、上传 JSON 人物包和下载人物包。上传内容当前仅保存在本地。", Upload, status.local],
-  ["多链市场", "展示 ETH、BNB、SOL 的公开价格，以及 Ethereum、BSC、Solana 的链 TVL；提供 OpenClue、DefiLlama、Dune、Nansen 研究入口。", BarChart3, status.live],
-  ["资产与钱包", "支持 MetaMask/EVM、Phantom/Solana 连接，读取公开原生币余额；WalletConnect 仅保留入口。", Wallet, status.live],
-];
+type DocChapter = {
+  id: string;
+  number: string;
+  label: string;
+  title: string;
+  intro: string;
+  icon: LucideIcon;
+  items: DocItem[];
+};
 
-const votingRules = [
-  ["参与者", "只有用户当前选择的人物参与回答和投票；未选择人物不会临时加入。"],
-  ["票型", "approve=赞成、abstain=保留、reject=反对；每票包含 0-100 置信度。"],
-  ["共识率", "round((赞成票 + 保留票 × 0.5) ÷ 参与人数 × 100)。反对票计 0。"],
-  ["最终方案", "包含标题、核心逻辑、最多 6 项且归一化为 100% 的配置、风险等级、收益判断、压力回撤、主要分歧和执行步骤。"],
-  ["降级策略", "DeepSeek 不可用时生成明确标记的本地演示回复，所有成员投保留票，共识率为 50%。"],
-  ["彩蛋规则", "彩蛋只替换已选人物的台词，不新增人物、不改变票型、不改变共识率和最终方案。"],
+const chapters: DocChapter[] = [
+  {
+    id: "overview",
+    number: "01",
+    label: "产品概览",
+    title: "什么是 Oracle Capital",
+    intro: "Oracle Capital 是一个面向加密资产用户的 AI 投资研究与模拟决策产品。它把不同投资思想放进同一场对话，让用户从多个角度审视机会、风险和执行条件。",
+    icon: Orbit,
+    items: [
+      { title: "多思想决策", description: "用户可以选择一位人物深入讨论，也可以邀请多位人物组成投资委员会。" },
+      { title: "覆盖方向", description: "产品围绕现货、DeFi 和合约研究展开，覆盖 Ethereum、BNB Chain 与 Solana。" },
+      { title: "用户掌控", description: "AI 负责提供分析和方案，用户始终保留最终判断、钱包确认和资金控制权。" },
+      { title: "人物声明", description: "网站人物是思想框架模拟，与相关人物本人、继承方不存在授权、关联或背书。" },
+    ],
+  },
+  {
+    id: "masters",
+    number: "02",
+    label: "人物星图",
+    title: "发现和选择投资人物",
+    intro: "首页通过可交互的圆形人物星图展示投资人物。用户可以搜索、拖动和组合人物，再进入对应的投资对话。",
+    icon: Users,
+    items: [
+      { title: "官方人物", description: "首批包括巴菲特、芒格、林奇、牛顿、哈耶克、马克思、亚当·斯密和凯恩斯。" },
+      { title: "动态大小", description: "人物球根据使用次数调整大小，常用人物更醒目，同时保留其他人物的可发现性。" },
+      { title: "物理互动", description: "人物球支持鼠标和触摸拖动。松手后会按惯性运动，并产生边界反弹和球体碰撞。" },
+      { title: "人物搜索", description: "可通过中文名、英文名、投资流派或思想关键词快速筛选人物。" },
+      { title: "选择规则", description: "选择一位人物可开始单独对话；选择三位及以上可召开投资委员会。" },
+    ],
+  },
+  {
+    id: "council",
+    number: "03",
+    label: "投资委员会",
+    title: "从独立观点到最终方案",
+    intro: "委员会中的每位人物按照自己的思想框架独立分析同一个问题，再通过投票和综合形成一份可阅读、可比较的最终方案。",
+    icon: Bot,
+    items: [
+      { title: "独立分析", description: "所选人物分别从价值、成长、宏观、市场机制、资本结构等角度给出意见。" },
+      { title: "投票机制", description: "人物可以投赞成、保留或反对票，并显示各自的判断置信度。" },
+      { title: "共识结果", description: "页面展示委员会共识率、票数分布和最重要的反对意见。" },
+      { title: "最终方案", description: "综合方案包含核心逻辑、配置比例、风险等级、收益判断、压力回撤和执行步骤。" },
+      { title: "讨论控制", description: "用户可以暂停或继续讨论，并在形成方案后查看模拟执行预览。" },
+    ],
+  },
+  {
+    id: "history",
+    number: "04",
+    label: "历史对话",
+    title: "继续以前的投资讨论",
+    intro: "历史会话入口位于首页和聊天侧栏。用户不需要每次重新选择人物，可以直接恢复上一次的讨论状态。",
+    icon: History,
+    items: [
+      { title: "自动保存", description: "发送第一条消息后，对话会自动进入历史记录。" },
+      { title: "完整恢复", description: "恢复内容包括人物组合、全部消息、人物投票、共识结果和最终方案。" },
+      { title: "首页入口", description: "首页提供“继续最近对话”和历史会话卡片。" },
+      { title: "当前范围", description: "历史记录目前保存在当前浏览器，清除浏览器数据或更换设备后不会自动同步。" },
+    ],
+  },
+  {
+    id: "community",
+    number: "05",
+    label: "人物社区",
+    title: "发现、评价和分享人物",
+    intro: "人物社区集中承载排行榜、搜索、点赞、评论和人物包分享。首页人物球保持简洁，不显示社交互动按钮。",
+    icon: Upload,
+    items: [
+      { title: "人物排行榜", description: "社区顶部按照人物使用次数展示排行榜，帮助用户发现热门人物。" },
+      { title: "点赞与评论", description: "每张社区人物卡片都支持点赞和评论，评论可用于交流人物风格和使用感受。" },
+      { title: "社区搜索", description: "支持按人物名称、作者、流派和人物介绍搜索。" },
+      { title: "上传人物", description: "用户可以上传符合人物包格式的 JSON 文件，在本地社区中预览和管理。" },
+      { title: "下载人物", description: "官方人物和已上传人物都可以下载为 JSON 人物包，便于分享和再次导入。" },
+    ],
+  },
+  {
+    id: "market",
+    number: "06",
+    label: "市场中心",
+    title: "查看多链市场和研究信息",
+    intro: "市场页面聚合核心资产价格和链上 TVL，让用户在进入 AI 分析前先了解基础市场状态。",
+    icon: BarChart3,
+    items: [
+      { title: "核心资产", description: "当前展示 ETH、BNB 和 SOL 的市场价格。" },
+      { title: "多链 TVL", description: "展示 Ethereum、BNB Chain 和 Solana 的链上总锁仓价值。" },
+      { title: "刷新与时间", description: "页面显示数据更新时间，并支持用户手动刷新。" },
+      { title: "AI 分析入口", description: "每个资产都可以直接交给投资委员会分析现货、DeFi 和合约机会。" },
+      { title: "研究工具", description: "页面提供 OpenClue、DefiLlama、Dune 和 Nansen 等研究网站入口。" },
+    ],
+  },
+  {
+    id: "portfolio",
+    number: "07",
+    label: "资产账户",
+    title: "模拟盘和真实钱包资产",
+    intro: "个人中心同时提供模拟盘和真实钱包两种模式，帮助用户分别体验策略和查看公开链上资产。",
+    icon: Wallet,
+    items: [
+      { title: "模拟盘", description: "默认提供 10,000 美元模拟资金，支持模拟充值、提现和资金流水查看。" },
+      { title: "模拟提现费用", description: "模拟提现按照提现金额收取 0.01% 手续费，仅作用于模拟余额。" },
+      { title: "钱包连接", description: "支持 MetaMask 及兼容 EVM 钱包，也支持 Phantom Solana 钱包。" },
+      { title: "资产显示", description: "可读取并展示钱包中的 ETH、BNB 和 SOL 原生资产余额。" },
+      { title: "真实充值", description: "连接钱包后可复制公开收款地址，从其他钱包或交易所转入资产。" },
+      { title: "非托管模式", description: "真实资产始终由用户钱包控制，网站不接触私钥或助记词。" },
+    ],
+  },
+  {
+    id: "settings",
+    number: "08",
+    label: "账户与设置",
+    title: "个人入口和使用偏好",
+    intro: "右上角头像打开账户菜单，将个人功能和显示设置集中在一个入口中。",
+    icon: Menu,
+    items: [
+      { title: "个人中心", description: "进入模拟盘、真实钱包资产和资金流水页面。" },
+      { title: "历史对话", description: "快速定位并继续以前保存的会话。" },
+      { title: "产品文档", description: "在独立文档页面查看产品功能和使用边界。" },
+      { title: "语言设置", description: "支持中文和英文界面切换，并保存最近选择。" },
+      { title: "日夜模式", description: "支持浅色和深色主题，并在再次进入时恢复偏好。" },
+    ],
+  },
+  {
+    id: "safety",
+    number: "09",
+    label: "安全边界",
+    title: "产品当前不会做什么",
+    intro: "Oracle Capital 当前以投资研究和模拟体验为核心。涉及真实资金的能力必须保持清晰、可验证和由用户确认。",
+    icon: ShieldCheck,
+    items: [
+      { title: "不承诺收益", description: "AI 观点和方案不构成收益保证，也不能替代用户自己的判断。" },
+      { title: "不托管私钥", description: "网站不会要求、读取或保存私钥和助记词。" },
+      { title: "不伪造真实执行", description: "当前方案执行是模拟流程，不会在用户不知情的情况下广播交易。" },
+      { title: "真实提现边界", description: "平台收费金库尚未启用，真实资产由用户直接通过自己的钱包管理。" },
+      { title: "交易前核对", description: "链上数据可能存在延迟，真实交易前应再次核对协议、网络、金额、授权和风险。" },
+    ],
+  },
+  {
+    id: "roadmap",
+    number: "10",
+    label: "产品路线",
+    title: "下一阶段建设方向",
+    intro: "当前版本适合黑客松展示和产品验证。后续将围绕跨设备账户、社区治理和真实交易基础设施继续建设。",
+    icon: ChevronRight,
+    items: [
+      { title: "账户同步", description: "支持钱包签名登录、跨设备历史同步和更完整的个人投资档案。" },
+      { title: "公共社区", description: "增加公开人物发布、点赞评论同步、审核、举报和创作者主页。" },
+      { title: "真实报价", description: "接入去中心化交易和借贷协议的真实报价、模拟执行与待签名交易。" },
+      { title: "风险系统", description: "增加协议白名单、滑点与仓位限制、授权检查、监控和审计记录。" },
+      { title: "资金设施", description: "真实资金产品上线前完成智能合约设计、安全审计和合规评估。" },
+    ],
+  },
 ];
-
-const easterEggs = [
-  ["巴菲特", "BTC / Bitcoin / 比特币", "先表达不看好，再给出总预算不超过可投资资产 5%、24 份、持续 6 个月的定投框架。"],
-  ["牛顿", "英国股市 / 英股 / London stock", "触发南海泡沫式疯狂台词，并强调分批、拒绝借贷和可证伪条件。"],
-  ["马克思", "资本 / capital", "从利润创造、风险承担、治理权、现金流和清算机制审视资本结构。"],
-  ["芒格", "反过来想 / 避免失败 / invert", "先列出破产路径，再排除高杠杆、陌生协议和流动性风险。"],
-  ["林奇", "十倍股 / 产品体验 / 生活中发现", "从日常观察出发，再核查增长、单位经济、资产负债表和估值。"],
-  ["哈耶克", "货币竞争 / 央行 / 稳定币 / 通胀", "比较储备质量、赎回通道、司法管辖和治理权。"],
-  ["亚当·斯密", "看不见的手 / 分工 / 交换 / 市场机制", "分析价格协调、产权、规则和参与者激励。"],
-  ["凯恩斯", "降息 / 衰退 / 流动性陷阱 / 动物精神", "强调期限、现金选择权和市场非理性持续时间。"],
-];
-
-const storageKeys = [
-  ["oracle-capital-theme", "light / dark 主题偏好"],
-  ["oracle-capital-language", "zh / en 语言偏好"],
-  ["oracle-capital-selected-masters", "最近选择的人物 ID 数组"],
-  ["oracle-capital-wallet", "钱包标签、公开地址和 evm/solana 类型，不含私钥"],
-  ["oracle-capital-conversations", "最多 20 个会话：消息、人物 ID、最终方案和更新时间"],
-  ["oracle-capital-simulation", "模拟余额与最多 30 条充值/提现流水"],
-  ["oracle-capital-master-likes", "当前浏览器点赞的人物 ID"],
-  ["oracle-capital-master-comments", "按人物 ID 保存的评论，每人物最多 30 条"],
-  ["oracle-capital-community-masters", "当前浏览器上传的社区人物包，最多 30 个"],
-];
-
-const apiRows = [
-  ["POST /api/chat", "DeepSeek deepseek-chat；45 秒超时；最多 8 位人物；返回角色回复、票型、置信度、综合结论和最终方案。"],
-  ["GET /api/market", "DefiLlama Coins 价格约缓存 60 秒，链 TVL 约缓存 300 秒。价格源失败时返回空价格而不伪造。"],
-  ["GET /api/portfolio?kind=evm&address=...", "读取 Ethereum 和 BNB Chain 原生币余额。"],
-  ["GET /api/portfolio?kind=solana&address=...", "读取 SOL 余额；Solana 官方、PublicNode、Ankr 三节点顺序回退；单节点超时 8 秒。"],
-];
-
-const communitySchema = `{
-  "id": "unique-id",
-  "name": "中文名称",
-  "en": "English Name",
-  "school": "投资流派",
-  "quote": "人物核心语录",
-  "risk": "稳健 | 均衡 | 激进",
-  "uses": 0,
-  "author": "作者名称",
-  "description": "人物分析框架说明"
-}`;
 
 export default function DocsPage() {
-  useEffect(() => {
-    const savedTheme = window.localStorage.getItem("oracle-capital-theme");
-    document.documentElement.dataset.theme = savedTheme === "dark" ? "dark" : "light";
-  }, []);
+  const [activeId, setActiveId] = useState(chapters[0].id);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const activeChapter = chapters.find((chapter) => chapter.id === activeId) ?? chapters[0];
+  const ActiveIcon = activeChapter.icon;
+
+  const selectChapter = (id: string) => {
+    setActiveId(id);
+    setSidebarOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   return (
-    <main className="min-h-screen bg-[var(--bg)] text-[var(--ink)]">
-      <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-[var(--bg-glass)] backdrop-blur-xl">
-        <div className="mx-auto flex h-20 max-w-[1200px] items-center justify-between px-5 lg:px-10">
-          <Link href="/" className="flex items-center gap-2 text-sm"><ArrowLeft size={16} />返回 Oracle Capital</Link>
-          <div className="flex items-center gap-4 text-xs"><Link href="/community" className="text-[var(--muted)] hover:text-[var(--ink)]">人物社区</Link><span className="section-label">OFFICIAL DOCUMENTATION</span></div>
+    <main className="min-h-screen bg-white text-black">
+      <header className="fixed inset-x-0 top-0 z-40 h-16 border-b border-black/15 bg-white/95 backdrop-blur">
+        <div className="flex h-full items-center justify-between px-4 lg:px-7">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setSidebarOpen(true)} className="grid h-9 w-9 place-items-center border border-black lg:hidden" aria-label="打开文档目录"><Menu size={17} /></button>
+            <Link href="/" className="flex items-center gap-2 text-sm font-medium"><ArrowLeft size={16} />Oracle Capital</Link>
+          </div>
+          <div className="text-right">
+            <div className="text-[10px] font-semibold tracking-[0.24em]">PRODUCT DOCUMENTATION</div>
+            <div className="mt-0.5 text-[9px] text-black/45">UPDATED 2026.06.12</div>
+          </div>
         </div>
       </header>
 
-      <section className="hero-glow mx-auto max-w-[1200px] px-5 py-16 lg:px-10 lg:py-24">
-        <div className="section-label">追光者 / Oracle Capital · 2026-06-12</div>
-        <h1 className="mt-5 max-w-5xl font-serif text-5xl leading-tight md:text-7xl">官方产品与功能文档</h1>
-        <p className="mt-7 max-w-3xl text-sm leading-8 text-[var(--muted)]">本文档以当前生产网站实际代码为准，区分已上线、本地演示、待接入和生产前必需能力。人物均为思想框架模拟，不代表或冒充真实人物。</p>
-        <div className="mt-8 flex flex-wrap gap-2 text-xs">
-          {Object.values(status).map((item) => <span key={item} className="rounded-full border border-[var(--line)] bg-[var(--panel)] px-4 py-2">{item}</span>)}
-        </div>
-      </section>
+      {sidebarOpen && <button onClick={() => setSidebarOpen(false)} className="fixed inset-0 z-40 bg-black/35 lg:hidden" aria-label="关闭文档目录" />}
 
-      <DocSection eyebrow="01 · 产品范围" title="当前网站能力">
-        <div className="grid gap-4 md:grid-cols-2">
-          {features.map(([title, description, Icon, featureStatus]) => (
-            <article key={String(title)} className="stat-card">
-              <div className="flex items-center justify-between"><Icon className="text-[var(--gold)]" size={21} /><span className="rounded-full bg-[var(--wash)] px-3 py-1 text-[9px]">{featureStatus}</span></div>
-              <h3 className="mt-5 font-serif text-2xl">{title}</h3>
-              <p className="mt-3 text-sm leading-7 text-[var(--muted)]">{description}</p>
-            </article>
-          ))}
+      <aside className={`fixed bottom-0 left-0 top-16 z-50 w-[300px] border-r border-black/15 bg-[#f4f4f2] transition-transform lg:z-30 lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}>
+        <div className="flex items-center justify-between border-b border-black/15 px-5 py-5">
+          <div>
+            <div className="text-[10px] font-semibold tracking-[0.2em] text-black/45">CONTENTS</div>
+            <div className="mt-1 font-serif text-xl">产品文档</div>
+          </div>
+          <button onClick={() => setSidebarOpen(false)} className="grid h-8 w-8 place-items-center border border-black/20 lg:hidden" aria-label="关闭"><X size={15} /></button>
         </div>
-      </DocSection>
+        <nav className="h-[calc(100%-81px)] overflow-y-auto px-3 py-4">
+          {chapters.map((chapter) => {
+            const Icon = chapter.icon;
+            const active = chapter.id === activeId;
+            return (
+              <button key={chapter.id} onClick={() => selectChapter(chapter.id)} className={`mb-1 flex w-full items-center gap-3 px-3 py-3 text-left transition ${active ? "bg-black text-white" : "text-black/65 hover:bg-black/5 hover:text-black"}`}>
+                <span className={`text-[10px] font-mono ${active ? "text-white/55" : "text-black/35"}`}>{chapter.number}</span>
+                <Icon size={15} />
+                <span className="flex-1 text-sm">{chapter.label}</span>
+                {active && <ChevronRight size={13} />}
+              </button>
+            );
+          })}
+        </nav>
+      </aside>
 
-      <DocSection eyebrow="02 · 人物系统" title="选择、排序与互动" soft>
-        <div className="grid gap-4 lg:grid-cols-3">
-          <DetailCard title="官方人物">巴菲特、芒格、林奇、牛顿、哈耶克、马克思、亚当·斯密、凯恩斯，共 8 位。</DetailCard>
-          <DetailCard title="球体大小算法">基础使用次数加当前浏览器历史会话次数，取 log10(count + 1)，再按全体最小/最大值归一化至约 152-248px。</DetailCard>
-          <DetailCard title="拖拽物理">拖动时球体跟随鼠标或触摸点并持续计算速度；移动小于 7px 视为单击选择，超过阈值视为拖动。松手速度限制在每帧 ±18px。</DetailCard>
-          <DetailCard title="运动与碰撞">每帧按速度更新位置，摩擦系数约 0.992；撞击画布边界后以约 0.82 的反弹系数回弹；球体相交时执行圆形分离和速度冲量。</DetailCard>
-          <DetailCard title="选择约束">1 位可单聊，3-8 位可召开委员会；2 位状态下开始按钮禁用。已选择状态会保存在浏览器。</DetailCard>
-          <DetailCard title="社区点赞">首页人物球不显示点赞。社区卡片提供点赞与取消点赞；官方展示数为演示基数加本地点赞状态。</DetailCard>
-          <DetailCard title="社区评论">首页人物球不显示评论。社区评论最长 160 字，每人物最多保存最近 30 条，只在当前浏览器可见。</DetailCard>
-          <DetailCard title="社区导航">主导航使用“社区”取代旧排行榜；旧 /rankings 地址自动跳转 /community。</DetailCard>
-        </div>
-      </DocSection>
+      <section className="min-h-screen pt-16 lg:pl-[300px]">
+        <div className="mx-auto max-w-[980px] px-5 py-12 md:px-10 lg:px-14 lg:py-20">
+          <div className="flex items-center gap-3 text-[10px] font-semibold tracking-[0.2em] text-black/45">
+            <ActiveIcon size={14} />
+            SECTION {activeChapter.number}
+          </div>
+          <h1 className="mt-7 max-w-4xl font-serif text-4xl leading-tight md:text-6xl">{activeChapter.title}</h1>
+          <p className="mt-7 max-w-3xl border-l-2 border-black pl-5 text-sm leading-8 text-black/60 md:text-base">{activeChapter.intro}</p>
 
-      <DocSection eyebrow="03 · AI 委员会" title="对话、投票与最终方案">
-        <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--panel)]">
-          {votingRules.map(([name, detail]) => <DocRow key={name} name={name} detail={detail} />)}
-        </div>
-        <div className="mt-8 rounded-2xl border border-[var(--line)] bg-[var(--panel-soft)] p-6">
-          <div className="section-label"><Sparkles size={14} /> 角色彩蛋</div>
-          <div className="mt-5 grid gap-3 md:grid-cols-2">
-            {easterEggs.map(([name, keyword, result]) => <article key={name} className="rounded-xl bg-[var(--panel)] p-4"><div className="flex items-center justify-between gap-3"><strong>{name}</strong><span className="text-[9px] text-[var(--gold)]">{keyword}</span></div><p className="mt-3 text-xs leading-6 text-[var(--muted)]">{result}</p></article>)}
+          <div className="mt-14 border-t border-black">
+            {activeChapter.items.map((item, index) => (
+              <article key={item.title} className="grid gap-4 border-b border-black/15 py-8 md:grid-cols-[64px_220px_1fr] md:gap-7">
+                <span className="font-mono text-xs text-black/35">{String(index + 1).padStart(2, "0")}</span>
+                <h2 className="font-serif text-xl">{item.title}</h2>
+                <div>
+                  <p className="text-sm leading-7 text-black/62">{item.description}</p>
+                  {item.details?.length ? <ul className="mt-4 space-y-2">{item.details.map((detail) => <li key={detail} className="flex gap-3 text-xs leading-6 text-black/55"><span className="mt-2 h-1 w-1 shrink-0 bg-black" />{detail}</li>)}</ul> : null}
+                </div>
+              </article>
+            ))}
+          </div>
+
+          <div className="mt-12 flex items-center justify-between border-t border-black pt-6 text-xs">
+            <span className="text-black/45">{activeChapter.number} / {String(chapters.length).padStart(2, "0")}</span>
+            {chapters.findIndex((chapter) => chapter.id === activeId) < chapters.length - 1 ? (
+              <button onClick={() => selectChapter(chapters[chapters.findIndex((chapter) => chapter.id === activeId) + 1].id)} className="flex items-center gap-2 border border-black px-5 py-3 font-medium hover:bg-black hover:text-white">下一部分 <ChevronRight size={14} /></button>
+            ) : <Link href="/" className="border border-black px-5 py-3 font-medium hover:bg-black hover:text-white">返回产品</Link>}
           </div>
         </div>
-      </DocSection>
-
-      <DocSection eyebrow="04 · 历史与偏好" title="保存与恢复机制" soft>
-        <div className="grid gap-4 md:grid-cols-2">
-          <DetailCard title="自动保存时机">发送第一条用户消息后开始保存；后续消息、投票和最终方案变化时更新会话。</DetailCard>
-          <DetailCard title="会话标题与数量">标题取第一条用户问题前 22 个字符；按更新时间倒序，最多保留 20 个。</DetailCard>
-          <DetailCard title="恢复内容">恢复会话 ID、全部消息、最终方案、方案展开状态，以及当时选中的人物组合。</DetailCard>
-          <DetailCard title="账户菜单">头像菜单包含个人中心、历史对话、产品文档、语言和日夜模式；社区只放在主导航，不在下拉菜单重复。</DetailCard>
-        </div>
-        <div className="mt-6 overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--panel)]">
-          {storageKeys.map(([key, detail]) => <DocRow key={key} name={key} detail={detail} mono />)}
-        </div>
-      </DocSection>
-
-      <DocSection eyebrow="05 · 人物社区" title="排行榜与人物包">
-        <div className="grid gap-4 md:grid-cols-3">
-          <DetailCard title="排行榜">位于社区页面最上方，按 uses 从高到低排序；前三名使用大卡片，其余展示列表。</DetailCard>
-          <DetailCard title="上传">仅接受 .json / application/json；校验必填字符串字段、uses 数字和三种风险枚举；导入时生成带时间戳的新 ID。</DetailCard>
-          <DetailCard title="下载">使用浏览器 Blob 导出 JSON，文件名格式为 id.oracle-master.json，可再次上传。</DetailCard>
-        </div>
-        <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_.8fr]">
-          <pre className="overflow-x-auto rounded-2xl border border-[var(--line)] bg-[#101b17] p-5 text-xs leading-6 text-[#d5d8cf]"><code>{communitySchema}</code></pre>
-          <div className="stat-card text-sm leading-7 text-[var(--muted)]"><strong className="text-[var(--ink)]">当前限制</strong><p className="mt-3">上传人物只进入社区列表，不会自动加入 AI 委员会首页，也不会上传到公共服务器。最多保存 30 个本地人物包。人物包不得包含 API Key、私钥或个人敏感信息。</p></div>
-        </div>
-      </DocSection>
-
-      <DocSection eyebrow="06 · 市场与资产" title="真实数据和模拟资金" soft>
-        <div className="grid gap-4 md:grid-cols-2">
-          <DetailCard title="市场面板">价格来自 DefiLlama Coins；TVL 来自 DefiLlama Chains。当前价格源不提供 24h 涨跌、市值和成交量时，界面显示“—”，不会填充假数据。</DetailCard>
-          <DetailCard title="研究入口">OpenClue 用于市场研究参考，DefiLlama 用于 TVL，Dune 用于社区链上看板，Nansen 用于钱包标签和资金流研究。</DetailCard>
-          <DetailCard title="模拟盘">初始余额 $10,000；可充值、提现；提现费用为提现金额 × 0.0001，即 0.01%；流水最多 30 条。</DetailCard>
-          <DetailCard title="真实钱包资产">EVM 同时读取 ETH 与 BNB；Phantom 读取 SOL。只显示原生币余额，暂不读取 ERC-20、BEP-20、SPL 代币或 NFT。</DetailCard>
-          <DetailCard title="真实充值">显示并复制当前连接钱包的公开收款地址，资金直接进入用户钱包，不进入平台托管账户。</DetailCard>
-          <DetailCard title="真实提现">非托管资产可由用户通过钱包直接发送。平台收费金库未部署，因此真实提现不收取也不伪造 0.01% 手续费。</DetailCard>
-        </div>
-      </DocSection>
-
-      <DocSection eyebrow="07 · 钱包与执行" title="连接、签名和限制">
-        <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--panel)]">
-          <DocRow name="MetaMask / EVM" detail="使用 window.ethereum 和 eth_requestAccounts 获取公开地址，支持兼容 EVM 浏览器钱包。" />
-          <DocRow name="Phantom / Solana" detail="检测 window.solana.isPhantom 并调用 connect() 获取公开地址。" />
-          <DocRow name="WalletConnect" detail="界面入口存在，但项目 ID 和正式 SDK 尚未接入。" />
-          <DocRow name="交易预览" detail="展示配置、共识率和风险等级；要求勾选风险声明。当前只执行 1.2 秒本地模拟签名，不广播链上交易。" />
-          <DocRow name="私钥边界" detail="网站不读取、不保存、不上传私钥或助记词；真实交易未来也必须由钱包单独确认。" />
-        </div>
-      </DocSection>
-
-      <DocSection eyebrow="08 · API 与数据源" title="当前线上接口" soft>
-        <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--panel)]">
-          {apiRows.map(([name, detail]) => <DocRow key={name} name={name} detail={detail} mono />)}
-        </div>
-        <p className="mt-5 text-xs leading-6 text-[var(--muted)]">DEEPSEEK_API_KEY 只保存在本地环境文件和 Vercel 环境变量，不提交 GitHub。公共 RPC 和数据源可能限流、延迟或暂时不可用，交易前应在区块浏览器和协议官方界面再次核对。</p>
-      </DocSection>
-
-      <DocSection eyebrow="09 · 安全与合规" title="明确不做的事情">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[
-            ["不承诺收益", "AI 不得承诺收益或声称已替用户执行交易。"],
-            ["不托管资金", "当前没有平台资金账户、收费金库或自动提款通道。"],
-            ["不直接执行模型参数", "生产交易必须经过确定性 schema、规则引擎、白名单、滑点和限额检查。"],
-            ["不冒充人物", "所有人物为教育和产品演示用途的思想框架模拟。"],
-          ].map(([title, text]) => <article key={title} className="stat-card"><ShieldCheck className="text-[var(--gold)]" size={18} /><h3 className="mt-4 font-serif text-xl">{title}</h3><p className="mt-3 text-xs leading-6 text-[var(--muted)]">{text}</p></article>)}
-        </div>
-      </DocSection>
-
-      <DocSection eyebrow="10 · 路线图" title="上线前后续工作" soft>
-        <div className="grid gap-4 md:grid-cols-3">
-          <DetailCard title="账户与同步">钱包签名登录、服务端账户、跨设备加密历史同步、评论与点赞公共数据库。</DetailCard>
-          <DetailCard title="交易基础设施">DEX/借贷真实报价、待签名交易构建、模拟执行、协议白名单和授权管理。</DetailCard>
-          <DetailCard title="生产安全">智能合约审计、金库和提现规则、KYT/地区合规、速率限制、审计日志、监控与告警。</DetailCard>
-        </div>
-        <div className="mt-10 flex flex-wrap justify-center gap-3"><Link href="/" className="primary-btn"><Bot size={15} />进入投资委员会</Link><Link href="/community" className="secondary-btn"><Users size={15} />打开人物社区</Link></div>
-      </DocSection>
+      </section>
     </main>
   );
-}
-
-function DocSection({ eyebrow, title, soft = false, children }: { eyebrow: string; title: string; soft?: boolean; children: React.ReactNode }) {
-  return (
-    <section className={`border-t border-[var(--line)] ${soft ? "bg-[var(--panel-soft)]" : ""}`}>
-      <div className="mx-auto max-w-[1200px] px-5 py-16 lg:px-10">
-        <div className="section-label">{eyebrow}</div>
-        <h2 className="mb-8 mt-3 font-serif text-3xl md:text-4xl">{title}</h2>
-        {children}
-      </div>
-    </section>
-  );
-}
-
-function DetailCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return <article className="stat-card"><Check className="text-[var(--positive)]" size={17} /><h3 className="mt-4 font-serif text-xl">{title}</h3><p className="mt-3 text-xs leading-6 text-[var(--muted)]">{children}</p></article>;
-}
-
-function DocRow({ name, detail, mono = false }: { name: string; detail: string; mono?: boolean }) {
-  return <div className="grid gap-2 border-b border-[var(--line)] p-5 last:border-0 md:grid-cols-[260px_1fr]"><strong className={mono ? "font-mono text-xs" : "font-serif text-lg"}>{name}</strong><p className="text-sm leading-7 text-[var(--muted)]">{detail}</p></div>;
 }

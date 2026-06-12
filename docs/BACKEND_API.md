@@ -6,6 +6,11 @@
 
 ### `POST /api/chat`
 
+- 默认使用服务端 `DEEPSEEK_API_KEY`。
+- 可随单次请求传入用户自定义的 OpenAI Chat Completions 兼容配置；凭据只用于该次请求，不持久化。
+- 自定义地址必须为公网 HTTPS，禁止私网、本地地址、非 443 端口、URL 凭据和重定向。
+- 响应使用 `Cache-Control: no-store`，错误日志会对 API Key 脱敏。
+
 请求：
 
 ```json

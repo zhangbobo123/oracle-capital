@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 
 type MasterInput = {
   id: string;
@@ -72,6 +74,35 @@ const easterEggs = [
 ] as const;
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+function isPrivateAddress(address: string) {
+  if (address === "::1" || address === "::" || address.startsWith("fc") || address.startsWith("fd") || address.startsWith("fe8") || address.startsWith("fe9") || address.startsWith("fea") || address.startsWith("feb")) return true;
+  const normalized = address.startsWith("::ffff:") ? address.slice(7) : address;
+  if (isIP(normalized) !== 4) return false;
+  const [first, second] = normalized.split(".").map(Number);
+  return first === 0
+    || first === 10
+    || first === 127
+    || (first === 169 && second === 254)
+    || (first === 172 && second >= 16 && second <= 31)
+    || (first === 192 && second === 168)
+    || (first === 100 && second >= 64 && second <= 127)
+    || first >= 224;
+}
+
+async function validateCustomEndpoint(value: string) {
+  const endpoint = new URL(value);
+  if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || (endpoint.port && endpoint.port !== "443")) {
+    throw new Error("Custom API endpoint is not allowed");
+  }
+  if (endpoint.hostname === "localhost" || endpoint.hostname.endsWith(".local")) throw new Error("Local endpoints are not allowed");
+  const addresses = isIP(endpoint.hostname)
+    ? [{ address: endpoint.hostname }]
+    : await lookup(endpoint.hostname, { all: true, verbatim: true });
+  if (!addresses.length || addresses.some((item) => isPrivateAddress(item.address))) throw new Error("Private network endpoints are not allowed");
+  return endpoint.toString();
+}
 
 function extractJson(content: string): DeepSeekReply {
   const cleaned = content.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
@@ -102,22 +133,39 @@ function normalizeAllocations(allocations: DeepSeekReply["finalPlan"]["allocatio
 }
 
 export async function POST(request: Request) {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "DEEPSEEK_API_KEY is not configured" }, { status: 503 });
-  }
-
   try {
     const body = await request.json() as {
       question?: string;
       masters?: MasterInput[];
       history?: { role: string; content: string }[];
+      customApi?: {
+        endpoint?: string;
+        apiKey?: string;
+        model?: string;
+      } | null;
     };
     const question = body.question?.trim();
     const masters = body.masters?.slice(0, 8) ?? [];
     if (!question || !masters.length) {
       return NextResponse.json({ error: "Question and masters are required" }, { status: 400 });
     }
+    const customKey = body.customApi?.apiKey?.trim();
+    const customModel = body.customApi?.model?.trim();
+    const customEndpoint = body.customApi?.endpoint?.trim();
+    if (customKey && (customKey.length > 512 || !customModel || customModel.length > 120 || !customEndpoint || customEndpoint.length > 500)) {
+      return NextResponse.json({ error: "Invalid custom API configuration" }, { status: 400 });
+    }
+    const apiKey = customKey || process.env.DEEPSEEK_API_KEY;
+    if (!apiKey) return NextResponse.json({ error: "AI API key is not configured" }, { status: 503 });
+    let endpoint = "https://api.deepseek.com/chat/completions";
+    if (customKey) {
+      try {
+        endpoint = await validateCustomEndpoint(customEndpoint!);
+      } catch {
+        return NextResponse.json({ error: "Custom API endpoint is not allowed" }, { status: 400 });
+      }
+    }
+    const model = customKey ? customModel! : "deepseek-chat";
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 45000);
@@ -137,14 +185,14 @@ export async function POST(request: Request) {
       '{"replies":[{"masterId":"成员id","content":"该成员的中文观点，100-180字","vote":"approve|abstain|reject","confidence":0}],"synthesis":"中文综合结论，120-220字","finalPlan":{"title":"本轮动态方案名","thesis":"方案核心逻辑","allocations":[{"label":"资产或策略","percentage":0,"rationale":"配置原因"}],"riskLevel":"稳健|均衡|进取|高风险","expectedReturn":"区间或不适用，禁止虚构精确值","maxDrawdown":"压力情景区间或不适用","dissent":"委员会最重要的反对意见","steps":["执行步骤1","执行步骤2"]}}',
     ].join("\n");
 
-    const response = await fetch("https://api.deepseek.com/chat/completions", {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model,
         temperature: 0.75,
         max_tokens: 2600,
         response_format: { type: "json_object" },
@@ -154,18 +202,20 @@ export async function POST(request: Request) {
         ],
       }),
       signal: controller.signal,
+      redirect: "error",
+      cache: "no-store",
     });
     clearTimeout(timeout);
 
     if (!response.ok) {
       const detail = await response.text();
-      console.error("DeepSeek request failed", response.status, detail.slice(0, 300));
-      return NextResponse.json({ error: "DeepSeek request failed" }, { status: 502 });
+      console.error("AI provider request failed", response.status, detail.slice(0, 300).replaceAll(apiKey, "[redacted]"));
+      return NextResponse.json({ error: "AI provider request failed" }, { status: 502 });
     }
 
     const data = await response.json() as { choices?: { message?: { content?: string } }[] };
     const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error("DeepSeek returned an empty response");
+    if (!content) throw new Error("AI provider returned an empty response");
     const result = extractJson(content);
     const selectedIds = new Set(masters.map((master) => master.id));
     const triggeredEggs = easterEggs.filter((egg) => selectedIds.has(egg.masterId) && egg.test(question));
@@ -184,7 +234,7 @@ export async function POST(request: Request) {
         replies[existing] = { ...replies[existing], content: egg.content };
       }
     }
-    if (!replies.length || !result.synthesis?.trim() || !result.finalPlan) throw new Error("DeepSeek response is incomplete");
+    if (!replies.length || !result.synthesis?.trim() || !result.finalPlan) throw new Error("AI provider response is incomplete");
     const voteCounts = replies.reduce((counts, reply) => {
       counts[reply.vote] += 1;
       return counts;
@@ -202,7 +252,7 @@ export async function POST(request: Request) {
         consensusRate,
         voteCounts,
       },
-    });
+    }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("Chat route error", error);
     return NextResponse.json({ error: "Unable to generate an AI response" }, { status: 500 });

@@ -154,6 +154,7 @@ const chapters: DocChapter[] = [
       { title: "个人中心", description: "进入模拟盘、真实钱包资产和资金流水页面。" },
       { title: "历史对话", description: "快速定位并继续以前保存的会话。" },
       { title: "产品文档", description: "在独立文档页面查看产品功能和使用边界。" },
+      { title: "开发者 API", description: "可在当前浏览器中加密保存自己的 AI 接口配置，并随时恢复平台默认服务。" },
       { title: "语言设置", description: "支持中文和英文界面切换，并保存最近选择。" },
       { title: "日夜模式", description: "支持浅色和深色主题，并在再次进入时恢复偏好。" },
     ],

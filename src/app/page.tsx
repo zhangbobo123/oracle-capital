@@ -13,9 +13,14 @@ import {
   Check,
   ChevronDown,
   CircleDollarSign,
+  Code2,
+  Eye,
+  EyeOff,
   Globe2,
   History,
+  KeyRound,
   LoaderCircle,
+  LockKeyhole,
   Mic,
   Moon,
   Pause,
@@ -27,6 +32,7 @@ import {
   ShieldCheck,
   Sparkles,
   Sun,
+  Trash2,
   UserRound,
   Wallet,
   X,
@@ -68,6 +74,80 @@ type ConnectedWallet = {
   address: string;
   kind: "evm" | "solana";
 };
+
+type CustomApiConfig = {
+  endpoint: string;
+  apiKey: string;
+  model: string;
+};
+
+const apiConfigStorageKey = "oracle-capital-api-config";
+const apiKeyDatabase = "oracle-capital-secure";
+const apiKeyStore = "keys";
+const apiKeyId = "developer-api-aes-key";
+
+const bytesToBase64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
+const base64ToBytes = (value: string) => Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+
+function openApiKeyDatabase() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(apiKeyDatabase, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(apiKeyStore);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function getApiEncryptionKey() {
+  const database = await openApiKeyDatabase();
+  const existing = await new Promise<CryptoKey | undefined>((resolve, reject) => {
+    const request = database.transaction(apiKeyStore, "readonly").objectStore(apiKeyStore).get(apiKeyId);
+    request.onsuccess = () => resolve(request.result as CryptoKey | undefined);
+    request.onerror = () => reject(request.error);
+  });
+  if (existing) {
+    database.close();
+    return existing;
+  }
+  const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(apiKeyStore, "readwrite");
+    transaction.objectStore(apiKeyStore).put(key, apiKeyId);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+  database.close();
+  return key;
+}
+
+async function saveEncryptedApiConfig(config: CustomApiConfig) {
+  const key = await getApiEncryptionKey();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(config)));
+  window.localStorage.setItem(apiConfigStorageKey, JSON.stringify({
+    version: 1,
+    iv: bytesToBase64(iv),
+    data: bytesToBase64(new Uint8Array(encrypted)),
+  }));
+}
+
+async function loadEncryptedApiConfig(): Promise<CustomApiConfig | null> {
+  const raw = window.localStorage.getItem(apiConfigStorageKey);
+  if (!raw) return null;
+  try {
+    const record = JSON.parse(raw) as { iv: string; data: string };
+    const key = await getApiEncryptionKey();
+    const decrypted = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: base64ToBytes(record.iv) },
+      key,
+      base64ToBytes(record.data),
+    );
+    return JSON.parse(new TextDecoder().decode(decrypted)) as CustomApiConfig;
+  } catch {
+    window.localStorage.removeItem(apiConfigStorageKey);
+    return null;
+  }
+}
 
 type SimulationTransaction = {
   id: string;
@@ -302,6 +382,8 @@ export default function Home() {
   const [view, setView] = useState<"home" | "chat" | "profile">("home");
   const [menuOpen, setMenuOpen] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
+  const [apiOpen, setApiOpen] = useState(false);
+  const [customApi, setCustomApi] = useState<CustomApiConfig | null>(null);
   const [wallet, setWallet] = useState<ConnectedWallet | null>(null);
   const [question, setQuestion] = useState("");
   const [conversationToOpen, setConversationToOpen] = useState("");
@@ -335,6 +417,7 @@ export default function Home() {
       const savedLanguage = window.localStorage.getItem("oracle-capital-language");
       const savedMasters = window.localStorage.getItem("oracle-capital-selected-masters");
       const conversations = window.localStorage.getItem("oracle-capital-conversations");
+      void loadEncryptedApiConfig().then(setCustomApi);
       if (savedTheme === "light" || savedTheme === "dark") setTheme(savedTheme);
       if (savedLanguage === "zh" || savedLanguage === "en") setLang(savedLanguage);
       if (savedMasters) {
@@ -439,6 +522,7 @@ export default function Home() {
                     <button onClick={() => { setMenuOpen(false); setView("profile"); }} className="topic-row border-0 bg-transparent"><UserRound size={16} /><span className="flex-1 text-left">个人中心</span><ArrowRight size={14} /></button>
                     <button onClick={() => { setMenuOpen(false); setView("home"); window.setTimeout(() => document.getElementById("history")?.scrollIntoView(), 0); }} className="topic-row border-0 bg-transparent"><History size={16} /><span className="flex-1 text-left">历史对话</span><span className="text-[10px] text-[var(--muted)]">{savedConversations.length}</span></button>
                     <Link href="/docs" onClick={() => setMenuOpen(false)} className="topic-row border-0 bg-transparent"><BookOpen size={16} /><span className="flex-1 text-left">产品文档</span><ArrowRight size={14} /></Link>
+                    <button onClick={() => { setMenuOpen(false); setApiOpen(true); }} className="topic-row border-0 bg-transparent"><Code2 size={16} /><span className="flex-1 text-left">开发者 API</span><span className={`text-[10px] ${customApi ? "text-[var(--positive)]" : "text-[var(--muted)]"}`}>{customApi ? "已启用" : "平台默认"}</span></button>
                     <div className="my-2 border-t border-[var(--line)]" />
                     <div className="px-3 py-2 text-[10px] font-semibold tracking-[0.16em] text-[var(--muted)]">设置</div>
                     <div className="grid grid-cols-2 gap-2 p-2">
@@ -465,9 +549,10 @@ export default function Home() {
           onOpenConversation={openSavedConversation}
         />
       )}
-      {view === "chat" && <ChatView selectedMasters={selectedMasters} initialQuestion={question} initialConversationId={conversationToOpen} onRestoreMasters={setSelected} onBack={() => setView("home")} wallet={wallet} onNeedWallet={() => setWalletOpen(true)} notify={setToast} />}
+      {view === "chat" && <ChatView selectedMasters={selectedMasters} initialQuestion={question} initialConversationId={conversationToOpen} onRestoreMasters={setSelected} onBack={() => setView("home")} wallet={wallet} onNeedWallet={() => setWalletOpen(true)} customApi={customApi} notify={setToast} />}
       {view === "profile" && <ProfileView wallet={wallet} onNeedWallet={() => setWalletOpen(true)} notify={setToast} />}
       {walletOpen && <WalletModal connected={wallet} onClose={() => setWalletOpen(false)} onConnect={(value) => { setWallet(value); window.localStorage.setItem("oracle-capital-wallet", JSON.stringify(value)); setWalletOpen(false); setToast(`${value.label} 已连接`); }} onDisconnect={() => { setWallet(null); window.localStorage.removeItem("oracle-capital-wallet"); setWalletOpen(false); setToast("钱包已断开"); }} notify={setToast} />}
+      {apiOpen && <DeveloperApiModal current={customApi} onClose={() => setApiOpen(false)} onSave={(config) => { setCustomApi(config); setApiOpen(false); setToast("开发者 API 已加密保存并启用"); }} onRemove={() => { setCustomApi(null); setApiOpen(false); setToast("已恢复平台默认 API"); }} />}
       {toast && <div className="fixed bottom-5 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-[var(--ink)] px-5 py-3 text-xs text-[var(--bg)] shadow-xl">{toast}</div>}
     </main>
   );
@@ -504,10 +589,11 @@ function HomeView({
 
   const filteredMasters = useMemo(() => {
     const keyword = search.trim().toLowerCase();
-    if (!keyword) return masters;
-    return masters.filter((master) => [master.name, master.en, master.school, master.quote]
-      .some((field) => field.toLowerCase().includes(keyword)));
-  }, [search]);
+    return masters
+      .filter((master) => !keyword || [master.name, master.en, master.school, master.quote]
+        .some((field) => field.toLowerCase().includes(keyword)))
+      .sort((first, second) => (usageByMaster[second.id] ?? 0) - (usageByMaster[first.id] ?? 0));
+  }, [search, usageByMaster]);
 
   const usageValues = masters.map((master) => Math.log10((usageByMaster[master.id] ?? 0) + 1));
   const minUsage = Math.min(...usageValues);
@@ -864,6 +950,7 @@ function ChatView({
   onBack,
   wallet,
   onNeedWallet,
+  customApi,
   notify,
 }: {
   selectedMasters: Master[];
@@ -873,6 +960,7 @@ function ChatView({
   onBack: () => void;
   wallet: ConnectedWallet | null;
   onNeedWallet: () => void;
+  customApi: CustomApiConfig | null;
   notify: (message: string) => void;
 }) {
   const activeMasters = selectedMasters.length ? selectedMasters : masters.slice(0, 3);
@@ -983,9 +1071,10 @@ function ChatView({
           question: prompt,
           masters: activeMasters.map(({ id, name, school, quote, risk }) => ({ id, name, school, quote, risk })),
           history,
+          customApi,
         }),
       });
-      if (!response.ok) throw new Error("DeepSeek unavailable");
+      if (!response.ok) throw new Error("AI provider unavailable");
       const data = await response.json() as {
         replies: {
           masterId: string;
@@ -1040,7 +1129,7 @@ function ChatView({
         voteCounts: { approve: 0, abstain: activeMasters.length, reject: 0 },
       });
       setShowPlan(true);
-      notify("DeepSeek 暂未响应，已切换演示回复");
+      notify(`${customApi ? "自定义 API" : "DeepSeek"} 暂未响应，已切换演示回复`);
     } finally {
       setLoading(false);
     }
@@ -1066,7 +1155,7 @@ function ChatView({
             <div className="flex items-center gap-2">
               <div className="flex -space-x-2">{activeMasters.map((m) => <Avatar key={m.id} master={m} size="sm" />)}</div>
               <span className="font-serif text-lg">投资委员会</span>
-              <span className="status-dot">{loading ? "思考中" : "DeepSeek 在线"}</span>
+              <span className="status-dot">{loading ? "思考中" : customApi ? `${customApi.model} · 自定义 API` : "DeepSeek 在线"}</span>
             </div>
             <div className="mt-1 text-[10px] text-[var(--muted)]">AI 思想框架模拟 · {activeMasters.length} 位成员 · 用户确认后才可执行</div>
             </div>
@@ -1095,7 +1184,7 @@ function ChatView({
               </div>
             );
           })}
-          {loading && <div className="flex items-center gap-3 text-sm text-[var(--muted)]"><LoaderCircle className="animate-spin" size={18} />DeepSeek 正在组织不同大师的观点...</div>}
+          {loading && <div className="flex items-center gap-3 text-sm text-[var(--muted)]"><LoaderCircle className="animate-spin" size={18} />{customApi ? customApi.model : "DeepSeek"} 正在组织不同大师的观点...</div>}
 
           {showPlan && decision && !preview && (
             <div className="plan-card">
@@ -1390,6 +1479,84 @@ function ProfileView({ wallet, onNeedWallet, notify }: { wallet: ConnectedWallet
           <div className="stat-card"><ArrowUpFromLine className="text-[var(--gold)]" /><h3 className="mt-5 font-serif text-xl">真实提现</h3><p className="mt-2 text-xs leading-6 text-[var(--muted)]">非托管模式下，资产始终在你的钱包里，可随时通过钱包发送。平台尚未部署可审计的收费金库，因此不会伪造收取 0.01% 手续费。</p><button onClick={() => notify("真实收费提现需要部署审计金库合约后启用")} className="secondary-btn mt-5 w-full">金库通道待启用</button></div>
         </div>
       </>}
+    </div>
+  );
+}
+
+function DeveloperApiModal({
+  current,
+  onClose,
+  onSave,
+  onRemove,
+}: {
+  current: CustomApiConfig | null;
+  onClose: () => void;
+  onSave: (config: CustomApiConfig) => void;
+  onRemove: () => void;
+}) {
+  const [endpoint, setEndpoint] = useState(current?.endpoint ?? "https://api.deepseek.com/chat/completions");
+  const [model, setModel] = useState(current?.model ?? "deepseek-chat");
+  const [apiKey, setApiKey] = useState(current?.apiKey ?? "");
+  const [showKey, setShowKey] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    setError("");
+    try {
+      const url = new URL(endpoint.trim());
+      if (url.protocol !== "https:") throw new Error("接口必须使用 HTTPS");
+      if (!apiKey.trim() || !model.trim()) throw new Error("请填写 API Key 和模型名称");
+      const config = { endpoint: url.toString(), apiKey: apiKey.trim(), model: model.trim() };
+      setSaving(true);
+      await saveEncryptedApiConfig(config);
+      onSave(config);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "API 配置保存失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = () => {
+    window.localStorage.removeItem(apiConfigStorageKey);
+    onRemove();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/45 p-4 backdrop-blur-sm">
+      <button onClick={onClose} aria-label="关闭开发者 API" className="absolute inset-0 cursor-default" />
+      <form onSubmit={save} className="relative z-10 w-full max-w-xl rounded-3xl border border-[var(--line)] bg-[var(--panel)] p-6 shadow-2xl">
+        <div className="flex items-start justify-between gap-4">
+          <div><div className="section-label"><Code2 size={14} /> 开发者 API</div><h2 className="mt-3 font-serif text-3xl">使用你自己的 AI 接口</h2><p className="mt-2 text-xs leading-6 text-[var(--muted)]">支持 OpenAI Chat Completions 兼容接口。配置只在当前浏览器保存。</p></div>
+          <button type="button" onClick={onClose} className="icon-btn" aria-label="关闭"><X size={16} /></button>
+        </div>
+
+        <div className="mt-6 rounded-xl border border-[var(--line)] bg-[var(--panel-soft)] p-4">
+          <div className="flex items-center gap-2 text-xs font-semibold"><LockKeyhole size={15} className="text-[var(--gold)]" />AES-GCM 本地加密</div>
+          <p className="mt-2 text-[10px] leading-5 text-[var(--muted)]">API Key 不写入源码、URL、GitHub 或服务端数据库。加密密钥不可导出并保存在 IndexedDB；密文保存在本地存储。浏览器被恶意扩展或 XSS 控制时，任何前端方案都无法保证绝对不可提取。</p>
+        </div>
+
+        <label className="mt-5 block text-xs font-semibold">API 地址
+          <input value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://api.deepseek.com/chat/completions" className="mt-2 h-12 w-full rounded-xl border border-[var(--line)] bg-transparent px-4 font-mono text-xs outline-none focus:border-[var(--green)]" />
+        </label>
+        <label className="mt-4 block text-xs font-semibold">模型
+          <input value={model} onChange={(event) => setModel(event.target.value)} placeholder="deepseek-chat" className="mt-2 h-12 w-full rounded-xl border border-[var(--line)] bg-transparent px-4 font-mono text-xs outline-none focus:border-[var(--green)]" />
+        </label>
+        <label className="mt-4 block text-xs font-semibold">API Key
+          <div className="relative mt-2">
+            <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)]" size={15} />
+            <input value={apiKey} onChange={(event) => setApiKey(event.target.value)} type={showKey ? "text" : "password"} autoComplete="off" placeholder="sk-..." className="h-12 w-full rounded-xl border border-[var(--line)] bg-transparent pl-11 pr-12 font-mono text-xs outline-none focus:border-[var(--green)]" />
+            <button type="button" onClick={() => setShowKey((value) => !value)} className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center text-[var(--muted)]" aria-label={showKey ? "隐藏 API Key" : "显示 API Key"}>{showKey ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+          </div>
+        </label>
+        {error && <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-xs text-red-500">{error}</div>}
+        <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+          <button type="submit" disabled={saving} className="primary-btn flex-1">{saving ? <LoaderCircle className="animate-spin" size={15} /> : <Check size={15} />}{saving ? "正在加密..." : "加密保存并启用"}</button>
+          {current && <button type="button" onClick={remove} className="secondary-btn text-red-500"><Trash2 size={15} />移除配置</button>}
+        </div>
+      </form>
     </div>
   );
 }

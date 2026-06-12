@@ -26,6 +26,7 @@
 
 - 人物以圆形球展示，保留头像、中文名、投资流派和使用次数。
 - 使用次数由官方演示基数加当前浏览器历史会话次数组成。
+- 人物球首次进入和搜索结果均按实际使用热度降序排列，再进入物理运动状态。
 - 球体大小公式：
 
 ```text
@@ -215,6 +216,16 @@ DeepSeek 失败时：
 | `oracle-capital-master-likes` | 人物点赞 |
 | `oracle-capital-master-comments` | 人物评论 |
 | `oracle-capital-community-masters` | 本地社区人物 |
+| `oracle-capital-api-config` | AES-GCM 加密后的开发者 API 配置密文 |
+
+开发者 API：
+
+- 入口位于右上角头像菜单。
+- 用户可配置 OpenAI Chat Completions 兼容的 HTTPS 地址、模型和自己的 API Key。
+- API Key 使用浏览器 Web Crypto AES-GCM 加密；不可导出密钥保存在 IndexedDB，LocalStorage 仅保存密文。
+- 密钥不提交 GitHub、不写入 URL、不进入服务端数据库，聊天请求结束后不保留。
+- 自定义地址仅允许公网 HTTPS，并拦截本地、私网、非标准端口和重定向请求。
+- 浏览器被恶意扩展或 XSS 控制时，前端加密无法提供绝对防提取保证。
 
 ## 12. 当前不包含
 

@@ -14,14 +14,17 @@ import {
   ChevronDown,
   CircleDollarSign,
   Globe2,
+  Heart,
   History,
   LoaderCircle,
+  MessageCircle,
   Mic,
   Moon,
   Pause,
   Play,
   Plus,
   RefreshCw,
+  Search,
   Send,
   ShieldCheck,
   Sparkles,
@@ -89,24 +92,25 @@ type Master = {
   return: string;
   risk: "稳健" | "均衡" | "激进";
   position: string;
+  uses: number;
 };
 
 const masters: Master[] = [
-  { id: "buffett", name: "沃伦·巴菲特", en: "Warren Buffett", school: "价值投资", quote: "价格是你付出的，价值是你得到的。", return: "+18.4%", risk: "稳健", position: "0% 0%" },
-  { id: "munger", name: "查理·芒格", en: "Charlie Munger", school: "多元思维", quote: "先避开愚蠢，再寻找聪明。", return: "+15.7%", risk: "稳健", position: "33.333% 0%" },
-  { id: "lynch", name: "彼得·林奇", en: "Peter Lynch", school: "成长价值", quote: "投资你真正理解的事物。", return: "+24.1%", risk: "均衡", position: "66.666% 0%" },
-  { id: "newton", name: "艾萨克·牛顿", en: "Isaac Newton", school: "量化周期", quote: "用规律观察市场，也敬畏疯狂。", return: "+21.8%", risk: "均衡", position: "100% 0%" },
-  { id: "hayek", name: "弗里德里希·哈耶克", en: "Friedrich Hayek", school: "货币竞争", quote: "价格是分散知识的信号。", return: "+27.3%", risk: "激进", position: "0% 100%" },
-  { id: "marx", name: "卡尔·马克思", en: "Karl Marx", school: "资本结构", quote: "穿透收益，审视资本关系。", return: "+12.9%", risk: "均衡", position: "33.333% 100%" },
-  { id: "smith", name: "亚当·斯密", en: "Adam Smith", school: "市场机制", quote: "长期价值来自分工与交换。", return: "+17.6%", risk: "稳健", position: "66.666% 100%" },
-  { id: "keynes", name: "约翰·凯恩斯", en: "John Maynard Keynes", school: "宏观周期", quote: "市场保持非理性的时间可能更久。", return: "+22.5%", risk: "均衡", position: "100% 100%" },
+  { id: "buffett", name: "沃伦·巴菲特", en: "Warren Buffett", school: "价值投资", quote: "价格是你付出的，价值是你得到的。", return: "+18.4%", risk: "稳健", position: "0% 0%", uses: 18640 },
+  { id: "munger", name: "查理·芒格", en: "Charlie Munger", school: "多元思维", quote: "先避开愚蠢，再寻找聪明。", return: "+15.7%", risk: "稳健", position: "33.333% 0%", uses: 12380 },
+  { id: "lynch", name: "彼得·林奇", en: "Peter Lynch", school: "成长价值", quote: "投资你真正理解的事物。", return: "+24.1%", risk: "均衡", position: "66.666% 0%", uses: 8940 },
+  { id: "newton", name: "艾萨克·牛顿", en: "Isaac Newton", school: "量化周期", quote: "用规律观察市场，也敬畏疯狂。", return: "+21.8%", risk: "均衡", position: "100% 0%", uses: 3760 },
+  { id: "hayek", name: "弗里德里希·哈耶克", en: "Friedrich Hayek", school: "货币竞争", quote: "价格是分散知识的信号。", return: "+27.3%", risk: "激进", position: "0% 100%", uses: 5180 },
+  { id: "marx", name: "卡尔·马克思", en: "Karl Marx", school: "资本结构", quote: "穿透收益，审视资本关系。", return: "+12.9%", risk: "均衡", position: "33.333% 100%", uses: 7420 },
+  { id: "smith", name: "亚当·斯密", en: "Adam Smith", school: "市场机制", quote: "长期价值来自分工与交换。", return: "+17.6%", risk: "稳健", position: "66.666% 100%", uses: 4650 },
+  { id: "keynes", name: "约翰·凯恩斯", en: "John Maynard Keynes", school: "宏观周期", quote: "市场保持非理性的时间可能更久。", return: "+22.5%", risk: "均衡", position: "100% 100%", uses: 6910 },
 ];
 
 const translations = {
   zh: {
     navMarket: "市场",
     navMasters: "投资大师",
-    navRank: "排行榜",
+    navRank: "社区",
     connect: "连接钱包",
     eyebrow: "AI 投资委员会",
     title: "选择你的投资智囊团",
@@ -121,7 +125,7 @@ const translations = {
   en: {
     navMarket: "Markets",
     navMasters: "Masters",
-    navRank: "Rankings",
+    navRank: "Community",
     connect: "Connect Wallet",
     eyebrow: "AI INVESTMENT COUNCIL",
     title: "Choose your circle of conviction",
@@ -284,7 +288,7 @@ export default function Home() {
           <nav className="hidden items-center gap-9 text-sm text-[var(--muted)] md:flex">
             <Link href="/market" className="hover:text-[var(--ink)]">{t.navMarket}</Link>
             <button onClick={() => setView("home")} className="text-[var(--ink)]">{t.navMasters}</button>
-            <Link href="/rankings" className="hover:text-[var(--ink)]">{t.navRank}</Link>
+            <Link href="/community" className="hover:text-[var(--ink)]">{t.navRank}</Link>
           </nav>
           <div className="flex items-center gap-2">
             <button onClick={() => setToast("暂无新通知，AI 方案仍需你确认后执行")} className="icon-btn hidden sm:grid" aria-label="Notifications"><Bell size={17} /></button>
@@ -360,6 +364,69 @@ function HomeView({
   onTopic: (topic: string) => void;
   onOpenConversation: (conversation: SavedConversation) => void;
 }) {
+  const [search, setSearch] = useState("");
+  const [likedMasters, setLikedMasters] = useState<string[]>([]);
+  const [comments, setComments] = useState<Record<string, string[]>>({});
+  const [commentMaster, setCommentMaster] = useState<Master | null>(null);
+  const [commentDraft, setCommentDraft] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        setLikedMasters(JSON.parse(window.localStorage.getItem("oracle-capital-master-likes") ?? "[]") as string[]);
+        setComments(JSON.parse(window.localStorage.getItem("oracle-capital-master-comments") ?? "{}") as Record<string, string[]>);
+      } catch {
+        window.localStorage.removeItem("oracle-capital-master-likes");
+        window.localStorage.removeItem("oracle-capital-master-comments");
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const usageByMaster = useMemo(() => {
+    const counts = Object.fromEntries(masters.map((master) => [master.id, master.uses]));
+    conversations.forEach((conversation) => conversation.masterIds.forEach((id) => {
+      counts[id] = (counts[id] ?? 0) + 1;
+    }));
+    return counts;
+  }, [conversations]);
+
+  const filteredMasters = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    if (!keyword) return masters;
+    return masters.filter((master) => [master.name, master.en, master.school, master.quote]
+      .some((field) => field.toLowerCase().includes(keyword)));
+  }, [search]);
+
+  const usageValues = masters.map((master) => Math.log10((usageByMaster[master.id] ?? 0) + 1));
+  const minUsage = Math.min(...usageValues);
+  const maxUsage = Math.max(...usageValues);
+  const ballSize = (master: Master) => {
+    const value = Math.log10((usageByMaster[master.id] ?? 0) + 1);
+    const ratio = maxUsage === minUsage ? 0.5 : (value - minUsage) / (maxUsage - minUsage);
+    return Math.round(152 + ratio * 96);
+  };
+
+  const toggleLike = (masterId: string) => {
+    setLikedMasters((current) => {
+      const next = current.includes(masterId) ? current.filter((id) => id !== masterId) : [...current, masterId];
+      window.localStorage.setItem("oracle-capital-master-likes", JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const submitComment = (event: FormEvent) => {
+    event.preventDefault();
+    const value = commentDraft.trim();
+    if (!commentMaster || !value) return;
+    setComments((current) => {
+      const next = { ...current, [commentMaster.id]: [...(current[commentMaster.id] ?? []), value].slice(-30) };
+      window.localStorage.setItem("oracle-capital-master-comments", JSON.stringify(next));
+      return next;
+    });
+    setCommentDraft("");
+  };
+
   return (
     <>
       <section className="hero-glow mx-auto max-w-[1440px] px-5 pb-16 pt-16 text-center lg:px-10 lg:pt-24">
@@ -367,30 +434,45 @@ function HomeView({
         <h1 className="mx-auto max-w-4xl font-serif text-4xl leading-tight md:text-6xl lg:text-[72px]">{t.title}</h1>
         <p className="mx-auto mt-6 max-w-2xl text-sm leading-7 text-[var(--muted)] md:text-base">{t.sub}</p>
 
-        <div className="mx-auto mt-14 grid max-w-6xl grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {masters.map((master) => {
+        <div className="relative mx-auto mt-9 max-w-xl">
+          <Search className="pointer-events-none absolute left-5 top-1/2 -translate-y-1/2 text-[var(--muted)]" size={17} />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索人物、流派或投资思想" className="h-13 w-full rounded-full border border-[var(--line)] bg-[var(--panel)] pl-12 pr-5 text-sm outline-none transition focus:border-[var(--green)]" />
+        </div>
+
+        <div className="master-orbit mx-auto mt-10 max-w-6xl">
+          {filteredMasters.map((master, index) => {
             const active = selected.includes(master.id);
+            const liked = likedMasters.includes(master.id);
+            const size = ballSize(master);
+            const commentCount = comments[master.id]?.length ?? 0;
             return (
-              <button
+              <article
                 key={master.id}
-                onClick={() => toggleMaster(master.id)}
-                className={`master-card group relative overflow-hidden p-5 text-left ${active ? "selected" : ""}`}
+                className={`master-ball ${active ? "selected" : ""}`}
+                style={{
+                  width: size,
+                  height: size,
+                  animationDelay: `${index * -0.7}s`,
+                }}
               >
-                <div className="absolute right-4 top-4 grid h-6 w-6 place-items-center rounded-full border border-[var(--line)] bg-[var(--panel)]">
-                  {active && <Check size={14} />}
+                <button onClick={() => toggleMaster(master.id)} aria-label={`${active ? "取消选择" : "选择"}${master.name}`} className="absolute inset-0 z-0 rounded-full">
+                  <span className="sr-only">{active ? "取消选择" : "选择"}{master.name}</span>
+                </button>
+                <div className="pointer-events-none relative z-10 flex h-full flex-col items-center justify-center p-5">
+                  <Avatar master={master} size={size > 210 ? "lg" : "md"} />
+                  <h3 className="mt-3 font-serif text-lg font-semibold">{master.name}</h3>
+                  <p className="mt-1 text-[9px] text-[var(--muted)]">{master.school} · {(usageByMaster[master.id] ?? 0).toLocaleString()} 次</p>
+                  {active && <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-[var(--green)] px-2 py-1 text-[9px] text-[var(--bg)]"><Check size={10} />已选择</span>}
                 </div>
-                <Avatar master={master} size="lg" />
-                <div className="mt-5 flex items-center justify-between">
-                  <span className="rounded-full bg-[var(--wash)] px-2.5 py-1 text-[10px] font-semibold text-[var(--green)]">{master.school}</span>
-                  <span className="text-xs font-semibold text-[var(--positive)]">{master.return}</span>
+                <div className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 gap-1 rounded-full border border-[var(--line)] bg-[var(--panel-glass)] p-1 shadow-sm">
+                  <button onClick={() => toggleLike(master.id)} aria-label={`${liked ? "取消点赞" : "点赞"}${master.name}`} className={`grid h-7 min-w-7 place-items-center rounded-full px-1.5 text-[9px] ${liked ? "bg-red-500/10 text-red-500" : "hover:bg-[var(--wash)]"}`}><Heart fill={liked ? "currentColor" : "none"} size={13} /><span className="ml-1">{master.uses % 97 + (liked ? 1 : 0)}</span></button>
+                  <button onClick={() => setCommentMaster(master)} aria-label={`评论${master.name}`} className="grid h-7 min-w-7 place-items-center rounded-full px-1.5 text-[9px] hover:bg-[var(--wash)]"><MessageCircle size={13} /><span className="ml-1">{commentCount}</span></button>
                 </div>
-                <h3 className="mt-4 font-serif text-xl">{master.name}</h3>
-                <p className="mt-1 text-[10px] tracking-[0.12em] text-[var(--muted)]">{master.en.toUpperCase()}</p>
-                <p className="mt-4 border-t border-[var(--line)] pt-4 text-xs leading-5 text-[var(--muted)]">“{master.quote}”</p>
-              </button>
+              </article>
             );
           })}
         </div>
+        {!filteredMasters.length && <div className="mx-auto mt-10 max-w-lg rounded-2xl border border-dashed border-[var(--line)] p-8 text-sm text-[var(--muted)]">没有找到匹配人物，试试姓名、英文名或投资流派。</div>}
 
         <div className="sticky bottom-5 z-30 mx-auto mt-8 flex max-w-3xl flex-col items-center justify-between gap-4 rounded-2xl border border-[var(--line)] bg-[var(--panel)]/95 p-3 shadow-[0_18px_55px_rgba(20,48,38,.14)] backdrop-blur sm:flex-row">
           <div className="flex min-w-0 items-center gap-3 pl-2">
@@ -408,6 +490,25 @@ function HomeView({
           </div>
         </div>
       </section>
+
+      {commentMaster && (
+        <div className="fixed inset-0 z-[80] grid place-items-center bg-black/35 p-4 backdrop-blur-sm">
+          <button aria-label="关闭评论" onClick={() => setCommentMaster(null)} className="absolute inset-0 cursor-default" />
+          <div className="relative z-10 w-full max-w-lg rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-6 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3"><Avatar master={commentMaster} size="md" /><div><h2 className="font-serif text-xl">{commentMaster.name}</h2><p className="text-[10px] text-[var(--muted)]">人物评论</p></div></div>
+              <button onClick={() => setCommentMaster(null)} className="icon-btn" aria-label="关闭"><X size={16} /></button>
+            </div>
+            <div className="mt-5 max-h-64 space-y-2 overflow-y-auto">
+              {(comments[commentMaster.id] ?? []).length ? (comments[commentMaster.id] ?? []).map((comment, index) => <p key={`${comment}-${index}`} className="rounded-xl bg-[var(--panel-soft)] p-3 text-sm leading-6">{comment}</p>) : <p className="py-8 text-center text-xs text-[var(--muted)]">还没有评论，留下第一个观点。</p>}
+            </div>
+            <form onSubmit={submitComment} className="mt-4 flex gap-2">
+              <input value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)} maxLength={160} placeholder="评价这个人物的投资风格..." className="min-w-0 flex-1 rounded-full border border-[var(--line)] bg-transparent px-5 text-sm outline-none focus:border-[var(--green)]" />
+              <button className="primary-btn" type="submit">发布</button>
+            </form>
+          </div>
+        </div>
+      )}
 
       <section id="history" className="scroll-mt-24 border-t border-[var(--line)]">
         <div className="mx-auto max-w-[1200px] px-5 py-14 lg:px-10">

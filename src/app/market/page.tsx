@@ -63,7 +63,7 @@ export default function MarketPage() {
       <header className="border-b border-[var(--line)] bg-[var(--bg-glass)] backdrop-blur">
         <div className="mx-auto flex h-20 max-w-[1200px] items-center justify-between px-5 lg:px-10">
           <Link href="/" className="flex items-center gap-3 font-serif text-lg"><ArrowLeft size={17} />追光者</Link>
-          <nav className="flex items-center gap-6 text-sm"><span>市场</span><Link href="/rankings" className="text-[var(--muted)] hover:text-[var(--ink)]">排行榜</Link><Link href="/" className="primary-btn">AI 委员会</Link></nav>
+          <nav className="flex items-center gap-6 text-sm"><span>市场</span><Link href="/community" className="text-[var(--muted)] hover:text-[var(--ink)]">社区</Link><Link href="/" className="primary-btn">AI 委员会</Link></nav>
         </div>
       </header>
       <section className="hero-glow mx-auto max-w-[1200px] px-5 py-14 lg:px-10">

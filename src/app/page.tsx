@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -14,10 +14,8 @@ import {
   ChevronDown,
   CircleDollarSign,
   Globe2,
-  Heart,
   History,
   LoaderCircle,
-  MessageCircle,
   Mic,
   Moon,
   Pause,
@@ -365,23 +363,6 @@ function HomeView({
   onOpenConversation: (conversation: SavedConversation) => void;
 }) {
   const [search, setSearch] = useState("");
-  const [likedMasters, setLikedMasters] = useState<string[]>([]);
-  const [comments, setComments] = useState<Record<string, string[]>>({});
-  const [commentMaster, setCommentMaster] = useState<Master | null>(null);
-  const [commentDraft, setCommentDraft] = useState("");
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      try {
-        setLikedMasters(JSON.parse(window.localStorage.getItem("oracle-capital-master-likes") ?? "[]") as string[]);
-        setComments(JSON.parse(window.localStorage.getItem("oracle-capital-master-comments") ?? "{}") as Record<string, string[]>);
-      } catch {
-        window.localStorage.removeItem("oracle-capital-master-likes");
-        window.localStorage.removeItem("oracle-capital-master-comments");
-      }
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
 
   const usageByMaster = useMemo(() => {
     const counts = Object.fromEntries(masters.map((master) => [master.id, master.uses]));
@@ -401,31 +382,11 @@ function HomeView({
   const usageValues = masters.map((master) => Math.log10((usageByMaster[master.id] ?? 0) + 1));
   const minUsage = Math.min(...usageValues);
   const maxUsage = Math.max(...usageValues);
-  const ballSize = (master: Master) => {
+  const sizeByMaster = useMemo(() => Object.fromEntries(masters.map((master) => {
     const value = Math.log10((usageByMaster[master.id] ?? 0) + 1);
     const ratio = maxUsage === minUsage ? 0.5 : (value - minUsage) / (maxUsage - minUsage);
-    return Math.round(152 + ratio * 96);
-  };
-
-  const toggleLike = (masterId: string) => {
-    setLikedMasters((current) => {
-      const next = current.includes(masterId) ? current.filter((id) => id !== masterId) : [...current, masterId];
-      window.localStorage.setItem("oracle-capital-master-likes", JSON.stringify(next));
-      return next;
-    });
-  };
-
-  const submitComment = (event: FormEvent) => {
-    event.preventDefault();
-    const value = commentDraft.trim();
-    if (!commentMaster || !value) return;
-    setComments((current) => {
-      const next = { ...current, [commentMaster.id]: [...(current[commentMaster.id] ?? []), value].slice(-30) };
-      window.localStorage.setItem("oracle-capital-master-comments", JSON.stringify(next));
-      return next;
-    });
-    setCommentDraft("");
-  };
+    return [master.id, Math.round(152 + ratio * 96)];
+  })), [maxUsage, minUsage, usageByMaster]);
 
   return (
     <>
@@ -439,39 +400,7 @@ function HomeView({
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索人物、流派或投资思想" className="h-13 w-full rounded-full border border-[var(--line)] bg-[var(--panel)] pl-12 pr-5 text-sm outline-none transition focus:border-[var(--green)]" />
         </div>
 
-        <div className="master-orbit mx-auto mt-10 max-w-6xl">
-          {filteredMasters.map((master, index) => {
-            const active = selected.includes(master.id);
-            const liked = likedMasters.includes(master.id);
-            const size = ballSize(master);
-            const commentCount = comments[master.id]?.length ?? 0;
-            return (
-              <article
-                key={master.id}
-                className={`master-ball ${active ? "selected" : ""}`}
-                style={{
-                  width: size,
-                  height: size,
-                  animationDelay: `${index * -0.7}s`,
-                }}
-              >
-                <button onClick={() => toggleMaster(master.id)} aria-label={`${active ? "取消选择" : "选择"}${master.name}`} className="absolute inset-0 z-0 rounded-full">
-                  <span className="sr-only">{active ? "取消选择" : "选择"}{master.name}</span>
-                </button>
-                <div className="pointer-events-none relative z-10 flex h-full flex-col items-center justify-center p-5">
-                  <Avatar master={master} size={size > 210 ? "lg" : "md"} />
-                  <h3 className="mt-3 font-serif text-lg font-semibold">{master.name}</h3>
-                  <p className="mt-1 text-[9px] text-[var(--muted)]">{master.school} · {(usageByMaster[master.id] ?? 0).toLocaleString()} 次</p>
-                  {active && <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-[var(--green)] px-2 py-1 text-[9px] text-[var(--bg)]"><Check size={10} />已选择</span>}
-                </div>
-                <div className="absolute bottom-3 left-1/2 z-20 flex -translate-x-1/2 gap-1 rounded-full border border-[var(--line)] bg-[var(--panel-glass)] p-1 shadow-sm">
-                  <button onClick={() => toggleLike(master.id)} aria-label={`${liked ? "取消点赞" : "点赞"}${master.name}`} className={`grid h-7 min-w-7 place-items-center rounded-full px-1.5 text-[9px] ${liked ? "bg-red-500/10 text-red-500" : "hover:bg-[var(--wash)]"}`}><Heart fill={liked ? "currentColor" : "none"} size={13} /><span className="ml-1">{master.uses % 97 + (liked ? 1 : 0)}</span></button>
-                  <button onClick={() => setCommentMaster(master)} aria-label={`评论${master.name}`} className="grid h-7 min-w-7 place-items-center rounded-full px-1.5 text-[9px] hover:bg-[var(--wash)]"><MessageCircle size={13} /><span className="ml-1">{commentCount}</span></button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
+        <PhysicsMasterOrbit masters={filteredMasters} selected={selected} usageByMaster={usageByMaster} sizeByMaster={sizeByMaster} toggleMaster={toggleMaster} />
         {!filteredMasters.length && <div className="mx-auto mt-10 max-w-lg rounded-2xl border border-dashed border-[var(--line)] p-8 text-sm text-[var(--muted)]">没有找到匹配人物，试试姓名、英文名或投资流派。</div>}
 
         <div className="sticky bottom-5 z-30 mx-auto mt-8 flex max-w-3xl flex-col items-center justify-between gap-4 rounded-2xl border border-[var(--line)] bg-[var(--panel)]/95 p-3 shadow-[0_18px_55px_rgba(20,48,38,.14)] backdrop-blur sm:flex-row">
@@ -490,25 +419,6 @@ function HomeView({
           </div>
         </div>
       </section>
-
-      {commentMaster && (
-        <div className="fixed inset-0 z-[80] grid place-items-center bg-black/35 p-4 backdrop-blur-sm">
-          <button aria-label="关闭评论" onClick={() => setCommentMaster(null)} className="absolute inset-0 cursor-default" />
-          <div className="relative z-10 w-full max-w-lg rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-6 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3"><Avatar master={commentMaster} size="md" /><div><h2 className="font-serif text-xl">{commentMaster.name}</h2><p className="text-[10px] text-[var(--muted)]">人物评论</p></div></div>
-              <button onClick={() => setCommentMaster(null)} className="icon-btn" aria-label="关闭"><X size={16} /></button>
-            </div>
-            <div className="mt-5 max-h-64 space-y-2 overflow-y-auto">
-              {(comments[commentMaster.id] ?? []).length ? (comments[commentMaster.id] ?? []).map((comment, index) => <p key={`${comment}-${index}`} className="rounded-xl bg-[var(--panel-soft)] p-3 text-sm leading-6">{comment}</p>) : <p className="py-8 text-center text-xs text-[var(--muted)]">还没有评论，留下第一个观点。</p>}
-            </div>
-            <form onSubmit={submitComment} className="mt-4 flex gap-2">
-              <input value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)} maxLength={160} placeholder="评价这个人物的投资风格..." className="min-w-0 flex-1 rounded-full border border-[var(--line)] bg-transparent px-5 text-sm outline-none focus:border-[var(--green)]" />
-              <button className="primary-btn" type="submit">发布</button>
-            </form>
-          </div>
-        </div>
-      )}
 
       <section id="history" className="scroll-mt-24 border-t border-[var(--line)]">
         <div className="mx-auto max-w-[1200px] px-5 py-14 lg:px-10">
@@ -585,6 +495,230 @@ function HomeView({
         AI 模拟角色，与相关人物本人、继承方无关联、授权或背书。投资有风险，决策需谨慎。
       </footer>
     </>
+  );
+}
+
+type PhysicsBody = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  size: number;
+  dragging: boolean;
+  pointerId: number | null;
+  offsetX: number;
+  offsetY: number;
+  startX: number;
+  startY: number;
+  lastX: number;
+  lastY: number;
+  lastTime: number;
+};
+
+function PhysicsMasterOrbit({
+  masters: visibleMasters,
+  selected,
+  usageByMaster,
+  sizeByMaster,
+  toggleMaster,
+}: {
+  masters: Master[];
+  selected: string[];
+  usageByMaster: Record<string, number>;
+  sizeByMaster: Record<string, number>;
+  toggleMaster: (id: string) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const elementRefs = useRef(new Map<string, HTMLElement>());
+  const bodiesRef = useRef(new Map<string, PhysicsBody>());
+  const masterKey = visibleMasters.map((master) => master.id).join(",");
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !visibleMasters.length) return;
+    const bounds = container.getBoundingClientRect();
+    const columns = Math.max(2, Math.ceil(Math.sqrt(visibleMasters.length * 1.5)));
+    const rows = Math.ceil(visibleMasters.length / columns);
+    const nextBodies = new Map<string, PhysicsBody>();
+
+    visibleMasters.forEach((master, index) => {
+      const size = Math.min(sizeByMaster[master.id] ?? 152, Math.max(118, bounds.width * 0.42));
+      const column = index % columns;
+      const row = Math.floor(index / columns);
+      const cellWidth = bounds.width / columns;
+      const cellHeight = bounds.height / Math.max(1, rows);
+      const prior = bodiesRef.current.get(master.id);
+      nextBodies.set(master.id, {
+        x: prior ? Math.min(Math.max(0, prior.x), Math.max(0, bounds.width - size)) : Math.max(0, column * cellWidth + (cellWidth - size) / 2),
+        y: prior ? Math.min(Math.max(0, prior.y), Math.max(0, bounds.height - size)) : Math.max(0, row * cellHeight + (cellHeight - size) / 2),
+        vx: prior?.vx ?? ((index % 3) - 1) * 0.22,
+        vy: prior?.vy ?? ((index % 2) ? 0.18 : -0.18),
+        size,
+        dragging: false,
+        pointerId: null,
+        offsetX: 0,
+        offsetY: 0,
+        startX: 0,
+        startY: 0,
+        lastX: 0,
+        lastY: 0,
+        lastTime: 0,
+      });
+    });
+    bodiesRef.current = nextBodies;
+
+    let frame = 0;
+    let previousTime = performance.now();
+    const animate = (time: number) => {
+      const width = container.clientWidth;
+      const height = container.clientHeight;
+      const delta = Math.min(2, Math.max(0.25, (time - previousTime) / 16.67));
+      previousTime = time;
+      const bodies = [...bodiesRef.current.entries()];
+
+      for (const [, body] of bodies) {
+        if (body.dragging) continue;
+        body.x += body.vx * delta;
+        body.y += body.vy * delta;
+        body.vx *= Math.pow(0.992, delta);
+        body.vy *= Math.pow(0.992, delta);
+        if (Math.abs(body.vx) < 0.025) body.vx += 0.012 * (Math.random() - 0.5);
+        if (Math.abs(body.vy) < 0.025) body.vy += 0.012 * (Math.random() - 0.5);
+        if (body.x <= 0 || body.x + body.size >= width) {
+          body.x = Math.min(Math.max(0, body.x), Math.max(0, width - body.size));
+          body.vx *= -0.82;
+        }
+        if (body.y <= 0 || body.y + body.size >= height) {
+          body.y = Math.min(Math.max(0, body.y), Math.max(0, height - body.size));
+          body.vy *= -0.82;
+        }
+      }
+
+      for (let i = 0; i < bodies.length; i += 1) {
+        for (let j = i + 1; j < bodies.length; j += 1) {
+          const first = bodies[i][1];
+          const second = bodies[j][1];
+          const firstRadius = first.size / 2;
+          const secondRadius = second.size / 2;
+          const dx = second.x + secondRadius - (first.x + firstRadius);
+          const dy = second.y + secondRadius - (first.y + firstRadius);
+          const distance = Math.hypot(dx, dy) || 0.01;
+          const minimum = firstRadius + secondRadius + 5;
+          if (distance >= minimum) continue;
+          const nx = dx / distance;
+          const ny = dy / distance;
+          const overlap = minimum - distance;
+          if (!first.dragging) {
+            first.x -= nx * overlap * 0.5;
+            first.y -= ny * overlap * 0.5;
+          }
+          if (!second.dragging) {
+            second.x += nx * overlap * 0.5;
+            second.y += ny * overlap * 0.5;
+          }
+          const relativeVelocity = (second.vx - first.vx) * nx + (second.vy - first.vy) * ny;
+          if (relativeVelocity < 0) {
+            const impulse = relativeVelocity * 0.88;
+            if (!first.dragging) {
+              first.vx += impulse * nx;
+              first.vy += impulse * ny;
+            }
+            if (!second.dragging) {
+              second.vx -= impulse * nx;
+              second.vy -= impulse * ny;
+            }
+          }
+        }
+      }
+
+      for (const [id, body] of bodies) {
+        const element = elementRefs.current.get(id);
+        if (!element) continue;
+        element.style.width = `${body.size}px`;
+        element.style.height = `${body.size}px`;
+        element.style.transform = `translate3d(${body.x}px, ${body.y}px, 0)`;
+      }
+      frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [masterKey, sizeByMaster, visibleMasters]);
+
+  const pointerDown = (event: ReactPointerEvent<HTMLElement>, master: Master) => {
+    const body = bodiesRef.current.get(master.id);
+    const container = containerRef.current;
+    if (!body || !container) return;
+    const bounds = container.getBoundingClientRect();
+    body.dragging = true;
+    body.pointerId = event.pointerId;
+    body.offsetX = event.clientX - bounds.left - body.x;
+    body.offsetY = event.clientY - bounds.top - body.y;
+    body.startX = event.clientX;
+    body.startY = event.clientY;
+    body.lastX = event.clientX;
+    body.lastY = event.clientY;
+    body.lastTime = event.timeStamp;
+    body.vx = 0;
+    body.vy = 0;
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const pointerMove = (event: ReactPointerEvent<HTMLElement>, master: Master) => {
+    const body = bodiesRef.current.get(master.id);
+    const container = containerRef.current;
+    if (!body?.dragging || body.pointerId !== event.pointerId || !container) return;
+    const bounds = container.getBoundingClientRect();
+    const now = event.timeStamp;
+    const elapsed = Math.max(8, now - body.lastTime);
+    body.x = Math.min(Math.max(0, event.clientX - bounds.left - body.offsetX), Math.max(0, bounds.width - body.size));
+    body.y = Math.min(Math.max(0, event.clientY - bounds.top - body.offsetY), Math.max(0, bounds.height - body.size));
+    body.vx = ((event.clientX - body.lastX) / elapsed) * 16.67;
+    body.vy = ((event.clientY - body.lastY) / elapsed) * 16.67;
+    body.lastX = event.clientX;
+    body.lastY = event.clientY;
+    body.lastTime = now;
+  };
+
+  const pointerUp = (event: ReactPointerEvent<HTMLElement>, master: Master) => {
+    const body = bodiesRef.current.get(master.id);
+    if (!body || body.pointerId !== event.pointerId) return;
+    const distance = Math.hypot(event.clientX - body.startX, event.clientY - body.startY);
+    body.dragging = false;
+    body.pointerId = null;
+    body.vx = Math.max(-18, Math.min(18, body.vx));
+    body.vy = Math.max(-18, Math.min(18, body.vy));
+    if (distance < 7) toggleMaster(master.id);
+  };
+
+  return (
+    <div ref={containerRef} className="master-orbit physics mx-auto mt-10 max-w-6xl" aria-label="可拖动人物星图">
+      {visibleMasters.map((master) => {
+        const active = selected.includes(master.id);
+        return (
+          <article
+            key={master.id}
+            ref={(element) => {
+              if (element) elementRefs.current.set(master.id, element);
+              else elementRefs.current.delete(master.id);
+            }}
+            onPointerDown={(event) => pointerDown(event, master)}
+            onPointerMove={(event) => pointerMove(event, master)}
+            onPointerUp={(event) => pointerUp(event, master)}
+            onPointerCancel={(event) => pointerUp(event, master)}
+            className={`master-ball physics ${active ? "selected" : ""}`}
+            aria-label={`${master.name}，拖动移动，单击${active ? "取消选择" : "选择"}`}
+          >
+            <div className="pointer-events-none relative z-10 flex h-full flex-col items-center justify-center p-5">
+              <Avatar master={master} size={(sizeByMaster[master.id] ?? 152) > 210 ? "lg" : "md"} />
+              <h3 className="mt-3 font-serif text-lg font-semibold">{master.name}</h3>
+              <p className="mt-1 text-[9px] text-[var(--muted)]">{master.school} · {(usageByMaster[master.id] ?? 0).toLocaleString()} 次</p>
+              {active && <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-[var(--green)] px-2 py-1 text-[9px] text-[var(--bg)]"><Check size={10} />已选择</span>}
+            </div>
+          </article>
+        );
+      })}
+      <span className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-[var(--panel-glass)] px-4 py-2 text-[10px] text-[var(--muted)] shadow-sm">拖动人物球并松手，可按惯性运动</span>
+    </div>
   );
 }
 

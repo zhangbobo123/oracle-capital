@@ -26,9 +26,9 @@ const status = {
 };
 
 const features: [string, string, LucideIcon, string][] = [
-  ["动态人物星图", "8 位官方人物以圆形球展示，保留头像和姓名。球体直径使用 log10(使用次数 + 1) 归一化到约 152-248px；当前浏览器历史会话也会增加对应人物使用次数。", Users, status.live],
+  ["动态人物星图", "8 位官方人物以可拖拽圆形球展示。球体直径使用 log10(使用次数 + 1) 归一化；拖动松手后按惯性运动，支持摩擦减速、边界反弹和球体碰撞。", Users, status.live],
   ["人物搜索", "支持按中文名、英文名、投资流派和角色语录搜索，输入后即时过滤人物球。", Search, status.live],
-  ["点赞与评论", "每个人物可独立点赞和评论。操作不会误触人物选择；数据保存在当前浏览器。", Heart, status.local],
+  ["点赞与评论", "点赞和评论统一位于人物社区卡片，不占用首页人物球空间；数据保存在当前浏览器。", Heart, status.local],
   ["AI 投资委员会", "可选择 1 位人物单聊，或选择至少 3 位人物组成委员会；恰好选择 2 位时暂不允许开始。", Bot, status.live],
   ["历史恢复", "自动保存最近 20 个会话，并恢复原人物组合、消息、投票、共识率和最终方案。", History, status.live],
   ["人物社区", "社区顶部按使用次数展示排行榜，支持搜索、上传 JSON 人物包和下载人物包。上传内容当前仅保存在本地。", Upload, status.local],
@@ -127,9 +127,11 @@ export default function DocsPage() {
         <div className="grid gap-4 lg:grid-cols-3">
           <DetailCard title="官方人物">巴菲特、芒格、林奇、牛顿、哈耶克、马克思、亚当·斯密、凯恩斯，共 8 位。</DetailCard>
           <DetailCard title="球体大小算法">基础使用次数加当前浏览器历史会话次数，取 log10(count + 1)，再按全体最小/最大值归一化至约 152-248px。</DetailCard>
+          <DetailCard title="拖拽物理">拖动时球体跟随鼠标或触摸点并持续计算速度；移动小于 7px 视为单击选择，超过阈值视为拖动。松手速度限制在每帧 ±18px。</DetailCard>
+          <DetailCard title="运动与碰撞">每帧按速度更新位置，摩擦系数约 0.992；撞击画布边界后以约 0.82 的反弹系数回弹；球体相交时执行圆形分离和速度冲量。</DetailCard>
           <DetailCard title="选择约束">1 位可单聊，3-8 位可召开委员会；2 位状态下开始按钮禁用。已选择状态会保存在浏览器。</DetailCard>
-          <DetailCard title="点赞">点赞与取消点赞独立于人物选择；官方展示数为演示基数加本地点赞状态。</DetailCard>
-          <DetailCard title="评论">评论最长 160 字，每人物最多保存最近 30 条，只在当前浏览器可见。</DetailCard>
+          <DetailCard title="社区点赞">首页人物球不显示点赞。社区卡片提供点赞与取消点赞；官方展示数为演示基数加本地点赞状态。</DetailCard>
+          <DetailCard title="社区评论">首页人物球不显示评论。社区评论最长 160 字，每人物最多保存最近 30 条，只在当前浏览器可见。</DetailCard>
           <DetailCard title="社区导航">主导航使用“社区”取代旧排行榜；旧 /rankings 地址自动跳转 /community。</DetailCard>
         </div>
       </DocSection>

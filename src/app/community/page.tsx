@@ -1,15 +1,18 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
   Award,
   Download,
+  Heart,
+  MessageCircle,
   Search,
   ShieldCheck,
   Upload,
   Users,
+  X,
 } from "lucide-react";
 
 type CommunityMaster = {
@@ -47,18 +50,30 @@ export default function CommunityPage() {
   const [localMasters, setLocalMasters] = useState<CommunityMaster[]>([]);
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
+  const [likedMasters, setLikedMasters] = useState<string[]>([]);
+  const [comments, setComments] = useState<Record<string, string[]>>({});
+  const [commentMaster, setCommentMaster] = useState<CommunityMaster | null>(null);
+  const [commentDraft, setCommentDraft] = useState("");
 
   useEffect(() => {
     const savedTheme = window.localStorage.getItem("oracle-capital-theme");
     document.documentElement.dataset.theme = savedTheme === "dark" ? "dark" : "light";
     const timer = window.setTimeout(() => {
       const raw = window.localStorage.getItem("oracle-capital-community-masters");
-      if (!raw) return;
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as unknown[];
+          setLocalMasters(parsed.filter(isCommunityMaster));
+        } catch {
+          window.localStorage.removeItem("oracle-capital-community-masters");
+        }
+      }
       try {
-        const parsed = JSON.parse(raw) as unknown[];
-        setLocalMasters(parsed.filter(isCommunityMaster));
+        setLikedMasters(JSON.parse(window.localStorage.getItem("oracle-capital-master-likes") ?? "[]") as string[]);
+        setComments(JSON.parse(window.localStorage.getItem("oracle-capital-master-comments") ?? "{}") as Record<string, string[]>);
       } catch {
-        window.localStorage.removeItem("oracle-capital-community-masters");
+        window.localStorage.removeItem("oracle-capital-master-likes");
+        window.localStorage.removeItem("oracle-capital-master-comments");
       }
     }, 0);
     return () => window.clearTimeout(timer);
@@ -98,6 +113,26 @@ export default function CommunityPage() {
     } catch {
       setMessage("上传失败：请选择有效的 Oracle 人物 JSON 文件");
     }
+  };
+
+  const toggleLike = (masterId: string) => {
+    setLikedMasters((current) => {
+      const next = current.includes(masterId) ? current.filter((id) => id !== masterId) : [...current, masterId];
+      window.localStorage.setItem("oracle-capital-master-likes", JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const submitComment = (event: FormEvent) => {
+    event.preventDefault();
+    const value = commentDraft.trim();
+    if (!commentMaster || !value) return;
+    setComments((current) => {
+      const next = { ...current, [commentMaster.id]: [...(current[commentMaster.id] ?? []), value].slice(-30) };
+      window.localStorage.setItem("oracle-capital-master-comments", JSON.stringify(next));
+      return next;
+    });
+    setCommentDraft("");
   };
 
   return (
@@ -150,13 +185,30 @@ export default function CommunityPage() {
                 <p className="mt-1 text-[10px] uppercase tracking-wider text-[var(--muted)]">{master.en}</p>
                 <p className="mt-4 min-h-12 text-xs leading-6 text-[var(--muted)]">{master.description}</p>
                 <p className="mt-4 border-l-2 border-[var(--gold)] pl-3 text-xs italic leading-5">“{master.quote}”</p>
-                <div className="mt-6 flex items-center justify-between border-t border-[var(--line)] pt-4"><div className="text-[10px] text-[var(--muted)]">by {master.author}<br />{master.uses.toLocaleString()} 次使用</div><button onClick={() => downloadMaster(master)} className="secondary-btn px-4"><Download size={14} />下载</button></div>
+                <div className="mt-5 flex items-center gap-2">
+                  <button onClick={() => toggleLike(master.id)} className={`secondary-btn flex-1 px-3 ${likedMasters.includes(master.id) ? "border-red-500/40 text-red-500" : ""}`}><Heart fill={likedMasters.includes(master.id) ? "currentColor" : "none"} size={14} />{master.uses % 97 + (likedMasters.includes(master.id) ? 1 : 0)}</button>
+                  <button onClick={() => setCommentMaster(master)} className="secondary-btn flex-1 px-3"><MessageCircle size={14} />{comments[master.id]?.length ?? 0}</button>
+                </div>
+                <div className="mt-4 flex items-center justify-between border-t border-[var(--line)] pt-4"><div className="text-[10px] text-[var(--muted)]">by {master.author}<br />{master.uses.toLocaleString()} 次使用</div><button onClick={() => downloadMaster(master)} className="secondary-btn px-4"><Download size={14} />下载</button></div>
               </article>
             ))}
           </div>
           <div className="mt-8 flex items-start gap-3 rounded-xl border border-[var(--line)] bg-[var(--panel)] p-4 text-xs leading-6 text-[var(--muted)]"><ShieldCheck className="mt-1 shrink-0 text-[var(--gold)]" size={16} />社区上传当前保存在本地浏览器，不会自动发布到公共服务器。人物包仅包含角色配置，不应包含 API Key、私钥或个人敏感信息。</div>
         </div>
       </section>
+
+      {commentMaster && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4 backdrop-blur-sm">
+          <button onClick={() => setCommentMaster(null)} aria-label="关闭评论" className="absolute inset-0 cursor-default" />
+          <div className="relative z-10 w-full max-w-lg rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-6 shadow-2xl">
+            <div className="flex items-center justify-between"><div><div className="section-label">社区评论</div><h2 className="mt-2 font-serif text-2xl">{commentMaster.name}</h2></div><button onClick={() => setCommentMaster(null)} aria-label="关闭" className="icon-btn"><X size={16} /></button></div>
+            <div className="mt-5 max-h-64 space-y-2 overflow-y-auto">
+              {(comments[commentMaster.id] ?? []).length ? (comments[commentMaster.id] ?? []).map((comment, index) => <p key={`${comment}-${index}`} className="rounded-xl bg-[var(--panel-soft)] p-3 text-sm leading-6">{comment}</p>) : <p className="py-8 text-center text-xs text-[var(--muted)]">还没有评论，留下第一个社区观点。</p>}
+            </div>
+            <form onSubmit={submitComment} className="mt-4 flex gap-2"><input value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)} maxLength={160} placeholder="评价这个人物的投资风格..." className="min-w-0 flex-1 rounded-full border border-[var(--line)] bg-transparent px-5 text-sm outline-none focus:border-[var(--green)]" /><button type="submit" className="primary-btn">发布</button></form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

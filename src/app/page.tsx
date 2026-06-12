@@ -187,6 +187,7 @@ type Master = {
   return: string;
   risk: "稳健" | "均衡" | "激进";
   position?: string;
+  avatar?: string;
   uses: number;
 };
 
@@ -199,18 +200,11 @@ const masters: Master[] = [
   { id: "marx", name: "卡尔·马克思", en: "Karl Marx", school: "资本结构", quote: "穿透收益，审视资本关系。", return: "+12.9%", risk: "均衡", position: "33.333% 100%", uses: 7420 },
   { id: "smith", name: "亚当·斯密", en: "Adam Smith", school: "市场机制", quote: "长期价值来自分工与交换。", return: "+17.6%", risk: "稳健", position: "66.666% 100%", uses: 4650 },
   { id: "keynes", name: "约翰·凯恩斯", en: "John Maynard Keynes", school: "宏观周期", quote: "市场保持非理性的时间可能更久。", return: "+22.5%", risk: "均衡", position: "100% 100%", uses: 6910 },
-  { id: "graham", name: "本杰明·格雷厄姆", en: "Benjamin Graham", school: "安全边际", quote: "投资最大的敌人，很可能就是你自己。", return: "+16.8%", risk: "稳健", uses: 11240 },
-  { id: "dalio", name: "瑞·达利欧", en: "Ray Dalio", school: "全天候配置", quote: "痛苦加反思，等于进步。", return: "+20.6%", risk: "均衡", uses: 10320 },
-  { id: "soros", name: "乔治·索罗斯", en: "George Soros", school: "反身性", quote: "重要的不是你是否正确，而是正确时赚多少。", return: "+28.1%", risk: "激进", uses: 9780 },
-  { id: "fisher", name: "菲利普·费雪", en: "Philip Fisher", school: "成长研究", quote: "优秀公司值得用时间耐心持有。", return: "+23.7%", risk: "均衡", uses: 6350 },
-  { id: "bogle", name: "约翰·博格", en: "John Bogle", school: "指数投资", quote: "不要在草堆里找针，买下整个草堆。", return: "+14.9%", risk: "稳健", uses: 8240 },
-  { id: "templeton", name: "约翰·邓普顿", en: "John Templeton", school: "全球逆向", quote: "最悲观的时候，往往是最佳买点。", return: "+19.8%", risk: "均衡", uses: 4870 },
-  { id: "livermore", name: "杰西·利弗莫尔", en: "Jesse Livermore", school: "趋势交易", quote: "赚大钱靠的从来不是思考，而是等待。", return: "+31.4%", risk: "激进", uses: 7560 },
-  { id: "thiel", name: "彼得·蒂尔", en: "Peter Thiel", school: "垄断创新", quote: "从零到一，创造此前不存在的价值。", return: "+26.2%", risk: "激进", uses: 5980 },
-  { id: "musk", name: "埃隆·马斯克", en: "Elon Musk", school: "第一性原理", quote: "从基本事实出发，而不是类比推理。", return: "+29.6%", risk: "激进", uses: 13680 },
-  { id: "taleb", name: "纳西姆·塔勒布", en: "Nassim Taleb", school: "反脆弱", quote: "风会熄灭蜡烛，却能让火焰更旺。", return: "+18.9%", risk: "均衡", uses: 9140 },
-  { id: "howard-marks", name: "霍华德·马克斯", en: "Howard Marks", school: "周期与风险", quote: "你无法预测，但可以准备。", return: "+17.9%", risk: "稳健", uses: 7070 },
-  { id: "cathie-wood", name: "凯茜·伍德", en: "Cathie Wood", school: "颠覆式创新", quote: "创新会在共识形成之前重塑市场。", return: "+32.8%", risk: "激进", uses: 8610 },
+  { id: "soros", name: "乔治·索罗斯", en: "George Soros", school: "反身性", quote: "重要的不是你是否正确，而是正确时赚多少。", return: "+28.1%", risk: "激进", avatar: "/images/masters/soros.webp", uses: 9780 },
+  { id: "livermore", name: "杰西·利弗莫尔", en: "Jesse Livermore", school: "趋势交易", quote: "赚大钱靠的从来不是思考，而是等待。", return: "+31.4%", risk: "激进", avatar: "/images/masters/livermore.webp", uses: 7560 },
+  { id: "mozi", name: "墨子", en: "Mozi", school: "兼爱与实用", quote: "审利害、尚实用，以可验证的结果判断行动。", return: "+19.3%", risk: "稳健", avatar: "/images/masters/mozi.webp", uses: 4280 },
+  { id: "laozi", name: "老子", en: "Laozi", school: "顺势与无为", quote: "知止不殆，少则得，多则惑。", return: "+16.2%", risk: "稳健", avatar: "/images/masters/laozi.webp", uses: 5360 },
+  { id: "einstein", name: "阿尔伯特·爱因斯坦", en: "Albert Einstein", school: "复利与相对性", quote: "让模型保持简单，但不要简单过头。", return: "+20.8%", risk: "均衡", avatar: "/images/masters/einstein.webp", uses: 6120 },
 ];
 
 const translations = {
@@ -251,6 +245,15 @@ function Avatar({ master, size = "md" }: { master: Master; size?: "sm" | "md" | 
   const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
   const initials = master.en.split(" ").map((part) => part[0]).slice(0, 2).join("");
   const hue = [...master.id].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 360;
+  if (master.avatar) {
+    return (
+      <div
+        aria-label={master.name}
+        className={`${dimensions} shrink-0 rounded-full border border-[var(--line)] bg-cover bg-center shadow-sm`}
+        style={{ backgroundImage: `url('${basePath}${master.avatar}')` }}
+      />
+    );
+  }
   if (!master.position) {
     return (
       <div

@@ -13,7 +13,8 @@
 - 网络：Ethereum、BNB Chain、Solana。
 - 标的语境：现货、DeFi、合约研究；合约与交易执行仍为模拟。
 - AI：DeepSeek `deepseek-chat`。
-- 官方人物共 20 位：巴菲特、芒格、林奇、牛顿、哈耶克、马克思、亚当·斯密、凯恩斯、格雷厄姆、达利欧、索罗斯、费雪、博格、邓普顿、利弗莫尔、彼得·蒂尔、马斯克、塔勒布、霍华德·马克斯、凯茜·伍德。
+- 首页官方人物共 13 位：巴菲特、芒格、林奇、牛顿、哈耶克、马克思、亚当·斯密、凯恩斯、索罗斯、利弗莫尔、墨子、老子、爱因斯坦。
+- 社区额外提供阿峰、凉兮、霍金 3 位专属人物，不进入首页委员会。
 - 钱包：MetaMask/EVM 与 Phantom/Solana；WalletConnect 仅保留入口。
 - 市场：ETH、BNB、SOL 价格及 Ethereum、BSC、Solana TVL。
 - 资产：EVM 原生 ETH/BNB 和 Solana 原生 SOL。

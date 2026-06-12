@@ -25,30 +25,49 @@ type CommunityMaster = {
   uses: number;
   author: string;
   description: string;
+  position?: string;
+  avatar?: string;
 };
 
 const officialMasters: CommunityMaster[] = [
-  { id: "buffett", name: "沃伦·巴菲特", en: "Warren Buffett", school: "价值投资", quote: "价格是你付出的，价值是你得到的。", risk: "稳健", uses: 18640, author: "Oracle Capital", description: "强调护城河、现金流、估值与长期复利。" },
-  { id: "munger", name: "查理·芒格", en: "Charlie Munger", school: "多元思维", quote: "先避开愚蠢，再寻找聪明。", risk: "稳健", uses: 12380, author: "Oracle Capital", description: "使用跨学科心智模型识别激励、偏见与风险。" },
-  { id: "lynch", name: "彼得·林奇", en: "Peter Lynch", school: "成长价值", quote: "投资你真正理解的事物。", risk: "均衡", uses: 8940, author: "Oracle Capital", description: "寻找用户能理解、仍处于成长阶段的优质资产。" },
-  { id: "marx", name: "卡尔·马克思", en: "Karl Marx", school: "资本结构", quote: "穿透收益，审视资本关系。", risk: "均衡", uses: 7420, author: "Oracle Capital", description: "从资本结构、分配关系和周期矛盾分析市场。" },
-  { id: "keynes", name: "约翰·凯恩斯", en: "John Maynard Keynes", school: "宏观周期", quote: "市场保持非理性的时间可能更久。", risk: "均衡", uses: 6910, author: "Oracle Capital", description: "聚焦流动性、政策、预期和宏观周期变化。" },
-  { id: "hayek", name: "弗里德里希·哈耶克", en: "Friedrich Hayek", school: "货币竞争", quote: "价格是分散知识的信号。", risk: "激进", uses: 5180, author: "Oracle Capital", description: "从价格发现、去中心化知识和货币竞争观察 Web3。" },
-  { id: "smith", name: "亚当·斯密", en: "Adam Smith", school: "市场机制", quote: "长期价值来自分工与交换。", risk: "稳健", uses: 4650, author: "Oracle Capital", description: "研究分工、激励、交换效率和网络价值。" },
-  { id: "newton", name: "艾萨克·牛顿", en: "Isaac Newton", school: "量化周期", quote: "用规律观察市场，也敬畏疯狂。", risk: "均衡", uses: 3760, author: "Oracle Capital", description: "用数学规律和周期观察价格，同时警惕非理性泡沫。" },
-  { id: "graham", name: "本杰明·格雷厄姆", en: "Benjamin Graham", school: "安全边际", quote: "投资最大的敌人，很可能就是你自己。", risk: "稳健", uses: 11240, author: "Oracle Capital", description: "以安全边际、资产价值和市场先生框架审视投资。" },
-  { id: "dalio", name: "瑞·达利欧", en: "Ray Dalio", school: "全天候配置", quote: "痛苦加反思，等于进步。", risk: "均衡", uses: 10320, author: "Oracle Capital", description: "从经济机器、风险平价和不同宏观环境构建组合。" },
-  { id: "soros", name: "乔治·索罗斯", en: "George Soros", school: "反身性", quote: "重要的不是你是否正确，而是正确时赚多少。", risk: "激进", uses: 9780, author: "Oracle Capital", description: "关注认知与市场相互影响产生的趋势、失衡和拐点。" },
-  { id: "fisher", name: "菲利普·费雪", en: "Philip Fisher", school: "成长研究", quote: "优秀公司值得用时间耐心持有。", risk: "均衡", uses: 6350, author: "Oracle Capital", description: "深入研究管理层、研发、市场空间和长期成长质量。" },
-  { id: "bogle", name: "约翰·博格", en: "John Bogle", school: "指数投资", quote: "不要在草堆里找针，买下整个草堆。", risk: "稳健", uses: 8240, author: "Oracle Capital", description: "强调低成本、广泛分散、长期持有和减少交易摩擦。" },
-  { id: "templeton", name: "约翰·邓普顿", en: "John Templeton", school: "全球逆向", quote: "最悲观的时候，往往是最佳买点。", risk: "均衡", uses: 4870, author: "Oracle Capital", description: "在全球市场寻找被极端悲观情绪低估的资产。" },
-  { id: "livermore", name: "杰西·利弗莫尔", en: "Jesse Livermore", school: "趋势交易", quote: "赚大钱靠的从来不是思考，而是等待。", risk: "激进", uses: 7560, author: "Oracle Capital", description: "观察趋势、关键价位、仓位管理和市场行为。" },
-  { id: "thiel", name: "彼得·蒂尔", en: "Peter Thiel", school: "垄断创新", quote: "从零到一，创造此前不存在的价值。", risk: "激进", uses: 5980, author: "Oracle Capital", description: "寻找拥有独特技术、网络效应和长期垄断能力的创新。" },
-  { id: "musk", name: "埃隆·马斯克", en: "Elon Musk", school: "第一性原理", quote: "从基本事实出发，而不是类比推理。", risk: "激进", uses: 13680, author: "Oracle Capital", description: "用第一性原理拆解成本、技术可行性和规模化路径。" },
-  { id: "taleb", name: "纳西姆·塔勒布", en: "Nassim Taleb", school: "反脆弱", quote: "风会熄灭蜡烛，却能让火焰更旺。", risk: "均衡", uses: 9140, author: "Oracle Capital", description: "重视尾部风险、可选性、杠铃策略和从波动中获益。" },
-  { id: "howard-marks", name: "霍华德·马克斯", en: "Howard Marks", school: "周期与风险", quote: "你无法预测，但可以准备。", risk: "稳健", uses: 7070, author: "Oracle Capital", description: "关注市场周期、风险定价、投资者心理和防守能力。" },
-  { id: "cathie-wood", name: "凯茜·伍德", en: "Cathie Wood", school: "颠覆式创新", quote: "创新会在共识形成之前重塑市场。", risk: "激进", uses: 8610, author: "Oracle Capital", description: "研究人工智能、机器人、能源和区块链等颠覆式创新。" },
+  { id: "buffett", name: "沃伦·巴菲特", en: "Warren Buffett", school: "价值投资", quote: "价格是你付出的，价值是你得到的。", risk: "稳健", uses: 18640, author: "Oracle Capital", description: "强调护城河、现金流、估值与长期复利。", position: "0% 0%" },
+  { id: "munger", name: "查理·芒格", en: "Charlie Munger", school: "多元思维", quote: "先避开愚蠢，再寻找聪明。", risk: "稳健", uses: 12380, author: "Oracle Capital", description: "使用跨学科心智模型识别激励、偏见与风险。", position: "33.333% 0%" },
+  { id: "lynch", name: "彼得·林奇", en: "Peter Lynch", school: "成长价值", quote: "投资你真正理解的事物。", risk: "均衡", uses: 8940, author: "Oracle Capital", description: "寻找用户能理解、仍处于成长阶段的优质资产。", position: "66.666% 0%" },
+  { id: "newton", name: "艾萨克·牛顿", en: "Isaac Newton", school: "量化周期", quote: "用规律观察市场，也敬畏疯狂。", risk: "均衡", uses: 3760, author: "Oracle Capital", description: "用数学规律和周期观察价格，同时警惕非理性泡沫。", position: "100% 0%" },
+  { id: "hayek", name: "弗里德里希·哈耶克", en: "Friedrich Hayek", school: "货币竞争", quote: "价格是分散知识的信号。", risk: "激进", uses: 5180, author: "Oracle Capital", description: "从价格发现、去中心化知识和货币竞争观察 Web3。", position: "0% 100%" },
+  { id: "marx", name: "卡尔·马克思", en: "Karl Marx", school: "资本结构", quote: "穿透收益，审视资本关系。", risk: "均衡", uses: 7420, author: "Oracle Capital", description: "从资本结构、分配关系和周期矛盾分析市场。", position: "33.333% 100%" },
+  { id: "smith", name: "亚当·斯密", en: "Adam Smith", school: "市场机制", quote: "长期价值来自分工与交换。", risk: "稳健", uses: 4650, author: "Oracle Capital", description: "研究分工、激励、交换效率和网络价值。", position: "66.666% 100%" },
+  { id: "keynes", name: "约翰·凯恩斯", en: "John Maynard Keynes", school: "宏观周期", quote: "市场保持非理性的时间可能更久。", risk: "均衡", uses: 6910, author: "Oracle Capital", description: "聚焦流动性、政策、预期和宏观周期变化。", position: "100% 100%" },
+  { id: "soros", name: "乔治·索罗斯", en: "George Soros", school: "反身性", quote: "重要的不是你是否正确，而是正确时赚多少。", risk: "激进", uses: 9780, author: "Oracle Capital", description: "关注认知与市场相互影响产生的趋势、失衡和拐点。", avatar: "/images/masters/soros.webp" },
+  { id: "livermore", name: "杰西·利弗莫尔", en: "Jesse Livermore", school: "趋势交易", quote: "赚大钱靠的从来不是思考，而是等待。", risk: "激进", uses: 7560, author: "Oracle Capital", description: "观察趋势、关键价位、仓位管理和市场行为。", avatar: "/images/masters/livermore.webp" },
+  { id: "mozi", name: "墨子", en: "Mozi", school: "兼爱与实用", quote: "审利害、尚实用，以可验证的结果判断行动。", risk: "稳健", uses: 4280, author: "Oracle Capital", description: "以节用、实证和结果检验投资假设，重视资源效率。", avatar: "/images/masters/mozi.webp" },
+  { id: "laozi", name: "老子", en: "Laozi", school: "顺势与无为", quote: "知止不殆，少则得，多则惑。", risk: "稳健", uses: 5360, author: "Oracle Capital", description: "强调顺势、留白、克制交易，以及在不确定性中保留余地。", avatar: "/images/masters/laozi.webp" },
+  { id: "einstein", name: "阿尔伯特·爱因斯坦", en: "Albert Einstein", school: "复利与相对性", quote: "让模型保持简单，但不要简单过头。", risk: "均衡", uses: 6120, author: "Oracle Capital", description: "使用思想实验、概率和简洁模型检验复杂投资叙事。", avatar: "/images/masters/einstein.webp" },
+  { id: "afeng", name: "阿峰", en: "A Feng", school: "链上实战", quote: "先看链上资金往哪里走，再决定故事值多少钱。", risk: "激进", uses: 6840, author: "Oracle Community", description: "社区专属人物，聚焦链上资金流、市场热点和仓位节奏。", avatar: "/images/masters/afeng.webp" },
+  { id: "liangxi", name: "凉兮", en: "Liang Xi", school: "高波动交易", quote: "机会来自波动，生存来自纪律。", risk: "激进", uses: 5730, author: "Oracle Community", description: "社区专属人物，从情绪、赔率和交易纪律观察高波动市场。", avatar: "/images/masters/liangxi.webp" },
+  { id: "hawking", name: "斯蒂芬·霍金", en: "Stephen Hawking", school: "时间与概率", quote: "面对未知，最重要的是提出可以检验的问题。", risk: "均衡", uses: 4980, author: "Oracle Community", description: "社区专属人物，以时间尺度、概率和边界条件拆解投资问题。", avatar: "/images/masters/hawking.webp" },
 ];
+
+function CommunityAvatar({ master, size = "md" }: { master: CommunityMaster; size?: "sm" | "md" | "lg" }) {
+  const dimensions = size === "lg" ? "h-16 w-16" : size === "sm" ? "h-10 w-10" : "h-14 w-14";
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+  const initials = master.en.split(" ").map((part) => part[0]).slice(0, 2).join("");
+  const style = master.avatar
+    ? { backgroundImage: `url('${basePath}${master.avatar}')`, backgroundSize: "cover", backgroundPosition: "center" }
+    : master.position
+      ? { backgroundImage: `url('${basePath}/images/masters-grid.png')`, backgroundSize: "400% 200%", backgroundPosition: master.position }
+      : undefined;
+
+  return (
+    <div
+      aria-label={master.name}
+      className={`${dimensions} grid shrink-0 place-items-center rounded-full border border-[var(--line)] bg-[var(--wash)] bg-cover bg-center font-serif text-xs font-semibold shadow-sm`}
+      style={style}
+    >
+      {!style && initials}
+    </div>
+  );
+}
 
 const isCommunityMaster = (value: unknown): value is CommunityMaster => {
   if (!value || typeof value !== "object") return false;
@@ -166,8 +185,7 @@ export default function CommunityPage() {
             <article key={master.id} className="stat-card relative overflow-hidden">
               <span className="absolute right-4 top-3 font-serif text-5xl text-[var(--wash)]">0{index + 1}</span>
               <div className="section-label">TOP {index + 1}</div>
-              <h2 className="mt-5 font-serif text-2xl">{master.name}</h2>
-              <p className="mt-1 text-xs text-[var(--muted)]">{master.school} · {master.author}</p>
+              <div className="mt-5 flex items-center gap-3"><CommunityAvatar master={master} /><div><h2 className="font-serif text-2xl">{master.name}</h2><p className="mt-1 text-xs text-[var(--muted)]">{master.school} · {master.author}</p></div></div>
               <div className="mt-6 text-2xl font-semibold">{master.uses.toLocaleString()} <span className="text-xs font-normal text-[var(--muted)]">次使用</span></div>
             </article>
           ))}
@@ -193,8 +211,7 @@ export default function CommunityPage() {
             {filtered.map((master) => (
               <article key={master.id} className="stat-card">
                 <div className="flex items-center justify-between"><span className="rounded-full bg-[var(--wash)] px-3 py-1 text-[10px]">{master.school}</span><span className="text-[10px] text-[var(--muted)]">{master.risk}</span></div>
-                <h3 className="mt-5 font-serif text-2xl">{master.name}</h3>
-                <p className="mt-1 text-[10px] uppercase tracking-wider text-[var(--muted)]">{master.en}</p>
+                <div className="mt-5 flex items-center gap-4"><CommunityAvatar master={master} size="lg" /><div><h3 className="font-serif text-2xl">{master.name}</h3><p className="mt-1 text-[10px] uppercase tracking-wider text-[var(--muted)]">{master.en}</p></div></div>
                 <p className="mt-4 min-h-12 text-xs leading-6 text-[var(--muted)]">{master.description}</p>
                 <p className="mt-4 border-l-2 border-[var(--gold)] pl-3 text-xs italic leading-5">“{master.quote}”</p>
                 <div className="mt-5 flex items-center gap-2">
@@ -213,7 +230,7 @@ export default function CommunityPage() {
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4 backdrop-blur-sm">
           <button onClick={() => setCommentMaster(null)} aria-label="关闭评论" className="absolute inset-0 cursor-default" />
           <div className="relative z-10 w-full max-w-lg rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-6 shadow-2xl">
-            <div className="flex items-center justify-between"><div><div className="section-label">社区评论</div><h2 className="mt-2 font-serif text-2xl">{commentMaster.name}</h2></div><button onClick={() => setCommentMaster(null)} aria-label="关闭" className="icon-btn"><X size={16} /></button></div>
+            <div className="flex items-center justify-between"><div className="flex items-center gap-3"><CommunityAvatar master={commentMaster} /><div><div className="section-label">社区评论</div><h2 className="mt-2 font-serif text-2xl">{commentMaster.name}</h2></div></div><button onClick={() => setCommentMaster(null)} aria-label="关闭" className="icon-btn"><X size={16} /></button></div>
             <div className="mt-5 max-h-64 space-y-2 overflow-y-auto">
               {(comments[commentMaster.id] ?? []).length ? (comments[commentMaster.id] ?? []).map((comment, index) => <p key={`${comment}-${index}`} className="rounded-xl bg-[var(--panel-soft)] p-3 text-sm leading-6">{comment}</p>) : <p className="py-8 text-center text-xs text-[var(--muted)]">还没有评论，留下第一个社区观点。</p>}
             </div>

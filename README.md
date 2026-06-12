@@ -1,18 +1,18 @@
 # 追光者 / Oracle Capital
 
-AI 多链投资委员会黑客松项目。
+多agent 链上投资委员会黑客松项目。。
 
 生产网站：[https://oracle-capital.vercel.app](https://oracle-capital.vercel.app)
 
 ## 当前功能
 
-- 13 位 AI 投资思想人物动态星图，社区另有 3 位专属人物
+- 13 位 AI 投资思想人物
 - 人物搜索、拖拽、惯性运动和碰撞
 - 社区人物点赞、评论
 - 单人物对话与多人委员会
-- DeepSeek 投票、共识率和最终方案
+- 投票机制、共识率和最终方案
 - 历史会话与人物组合恢复
-- 人物社区排行榜、JSON 上传与下载
+- 人物社区排行榜、人物JSON 上传与下载
 - ETH、BNB、SOL 实时价格和多链 TVL
 - MetaMask/EVM、Phantom/Solana 钱包连接
 - 链上原生资产余额

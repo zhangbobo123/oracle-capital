@@ -1489,6 +1489,15 @@ function ProfileView({ wallet, onNeedWallet, notify }: { wallet: ConnectedWallet
     setCashAction(null);
   };
 
+  const resetSimulation = () => {
+    const next = defaultSimulationAccount();
+    persistAccount(next);
+    setCashAction(null);
+    setAmount("");
+    setShowAll(false);
+    notify("模拟盘已恢复初始状态（USDC $10,000）");
+  };
+
   const loadPortfolio = async () => {
     if (!wallet) {
       onNeedWallet();
@@ -1536,9 +1545,10 @@ function ProfileView({ wallet, onNeedWallet, notify }: { wallet: ConnectedWallet
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[["资金利用率", `${totalValue ? (investedValue / totalValue * 100).toFixed(1) : "0.0"}%`, "非 USDC 策略仓位"], ["稳定币占比", `${stableRatio.toFixed(1)}%`, "Ethereum USDC"], ["最大仓位", `${concentration.toFixed(1)}%`, riskLabel], ["最近共识", account.lastStrategy ? `${account.lastStrategy.consensusRate}%` : "—", account.lastStrategy ? `${account.lastStrategy.title} · $${account.lastStrategy.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "尚未执行 AI 方案"]].map(([label, value, note]) => <div key={label} className="stat-card"><div className="text-xs text-[var(--muted)]">{label}</div><div className="mt-3 font-serif text-3xl">{value}</div><div className="mt-2 truncate text-[10px] text-[var(--positive)]">{note}</div></div>)}
       </div>
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
+      <div className="mt-4 grid gap-4 md:grid-cols-3">
         <button onClick={() => setCashAction("deposit")} className="stat-card flex items-center gap-4 text-left"><span className="grid h-12 w-12 place-items-center rounded-full bg-[var(--wash)]"><ArrowDownToLine size={20} /></span><span><strong>模拟充值</strong><span className="mt-1 block text-xs text-[var(--muted)]">即时增加模拟盘可用余额</span></span></button>
         <button onClick={() => setCashAction("withdraw")} className="stat-card flex items-center gap-4 text-left"><span className="grid h-12 w-12 place-items-center rounded-full bg-[var(--wash)]"><ArrowUpFromLine size={20} /></span><span><strong>USDC 提现</strong><span className="mt-1 block text-xs text-[var(--muted)]">从 Ethereum USDC 扣款，手续费 0.01%</span></span></button>
+        <button onClick={resetSimulation} className="stat-card flex items-center gap-4 text-left"><span className="grid h-12 w-12 place-items-center rounded-full bg-[var(--wash)]"><RefreshCw size={20} /></span><span><strong>一键恢复</strong><span className="mt-1 block text-xs text-[var(--muted)]">恢复初始资产：Ethereum USDC $10,000</span></span></button>
       </div>
       {cashAction && <div className="mt-4 plan-card"><div className="flex items-center justify-between"><div><div className="section-label">{cashAction === "deposit" ? "模拟充值" : "模拟提现"}</div><h2 className="mt-2 font-serif text-2xl">输入金额</h2></div><button onClick={() => setCashAction(null)} className="icon-btn"><X size={16} /></button></div><div className="mt-5 flex gap-2"><input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" placeholder="0.00 USD" className="min-w-0 flex-1 rounded-full border border-[var(--line)] bg-transparent px-5 text-sm outline-none" /><button onClick={submitCashAction} className="primary-btn">确认{cashAction === "deposit" ? "充值" : "提现"}</button></div>{cashAction === "withdraw" && <p className="mt-3 text-xs text-[var(--muted)]">预计手续费：${((Number(amount) || 0) * 0.0001).toFixed(4)}，到账金额：${Math.max(0, (Number(amount) || 0)).toFixed(2)}</p>}</div>}
       <div className="mt-4 grid gap-4 lg:grid-cols-[1.25fr_.75fr]">

@@ -7,6 +7,11 @@ const nextConfig: NextConfig = {
   ...(isGitHubActions ? { output: "export" as const } : {}),
   basePath,
   assetPrefix: basePath,
+  outputFileTracingIncludes: {
+    "/masters": ["./agent-backend/skills/**/*.md"],
+    "/discussions": ["./agent-backend/skills/**/*.md"],
+    "/discussions/stream": ["./agent-backend/skills/**/*.md"],
+  },
   env: {
     NEXT_PUBLIC_BASE_PATH: basePath,
   },

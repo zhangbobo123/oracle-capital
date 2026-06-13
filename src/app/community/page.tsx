@@ -2,6 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { getAgentMasters } from "@/lib/agent-api";
 import {
   ArrowLeft,
   Award,
@@ -29,7 +30,7 @@ type CommunityMaster = {
   avatar?: string;
 };
 
-const officialMasters: CommunityMaster[] = [
+const fallbackCommunityMasters: CommunityMaster[] = [
   { id: "buffett", name: "沃伦·巴菲特", en: "Warren Buffett", school: "价值投资", quote: "价格是你付出的，价值是你得到的。", risk: "稳健", uses: 18640, author: "Oracle Capital", description: "强调护城河、现金流、估值与长期复利。", position: "0% 0%" },
   { id: "munger", name: "查理·芒格", en: "Charlie Munger", school: "多元思维", quote: "先避开愚蠢，再寻找聪明。", risk: "稳健", uses: 12380, author: "Oracle Capital", description: "使用跨学科心智模型识别激励、偏见与风险。", position: "33.333% 0%" },
   { id: "lynch", name: "彼得·林奇", en: "Peter Lynch", school: "成长价值", quote: "投资你真正理解的事物。", risk: "均衡", uses: 8940, author: "Oracle Capital", description: "寻找用户能理解、仍处于成长阶段的优质资产。", position: "66.666% 0%" },
@@ -78,6 +79,7 @@ const isCommunityMaster = (value: unknown): value is CommunityMaster => {
 };
 
 export default function CommunityPage() {
+  const [officialMasters, setOfficialMasters] = useState<CommunityMaster[]>(fallbackCommunityMasters);
   const [localMasters, setLocalMasters] = useState<CommunityMaster[]>([]);
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
@@ -110,7 +112,23 @@ export default function CommunityPage() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  const allMasters = useMemo(() => [...officialMasters, ...localMasters], [localMasters]);
+  useEffect(() => {
+    let cancelled = false;
+    void getAgentMasters()
+      .then((items) => {
+        if (cancelled) return;
+        setOfficialMasters(items.map((item) => ({
+          ...item,
+          risk: item.risk === "进取" ? "激进" : item.risk,
+        })));
+      })
+      .catch(() => setMessage("人物接口暂不可用，稍后请刷新重试"));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const allMasters = useMemo(() => [...officialMasters, ...localMasters], [localMasters, officialMasters]);
   const ranking = useMemo(() => [...allMasters].sort((a, b) => b.uses - a.uses), [allMasters]);
   const filtered = useMemo(() => {
     const keyword = search.trim().toLowerCase();

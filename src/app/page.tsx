@@ -2,6 +2,7 @@
 
 import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { createAgentDiscussion, getAgentMasters, streamAgentDiscussion } from "@/lib/agent-api";
 import {
   ArrowLeft,
   ArrowRight,
@@ -271,7 +272,7 @@ type Master = {
   uses: number;
 };
 
-const masters: Master[] = [
+const fallbackMasters: Master[] = [
   { id: "buffett", name: "沃伦·巴菲特", en: "Warren Buffett", school: "价值投资", quote: "价格是你付出的，价值是你得到的。", return: "+18.4%", risk: "稳健", position: "0% 0%", uses: 18640 },
   { id: "munger", name: "查理·芒格", en: "Charlie Munger", school: "多元思维", quote: "先避开愚蠢，再寻找聪明。", return: "+15.7%", risk: "稳健", position: "33.333% 0%", uses: 12380 },
   { id: "lynch", name: "彼得·林奇", en: "Peter Lynch", school: "成长价值", quote: "投资你真正理解的事物。", return: "+24.1%", risk: "均衡", position: "66.666% 0%", uses: 8940 },
@@ -376,6 +377,7 @@ function BrandMark() {
 }
 
 export default function Home() {
+  const [masters, setMasters] = useState<Master[]>(fallbackMasters);
   const [selected, setSelected] = useState<string[]>(["buffett", "munger", "lynch"]);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [lang, setLang] = useState<"zh" | "en">("zh");
@@ -390,6 +392,34 @@ export default function Home() {
   const [savedConversations, setSavedConversations] = useState<SavedConversation[]>([]);
   const [toast, setToast] = useState("");
   const [preferencesReady, setPreferencesReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getAgentMasters()
+      .then((items) => {
+        if (cancelled || !items.length) return;
+        const localDisplay = new Map(fallbackMasters.map((master) => [master.id, master]));
+        setMasters(items.map((item) => {
+          const display = localDisplay.get(item.id);
+          return {
+            id: item.id,
+            name: item.name,
+            en: item.en,
+            school: item.school,
+            quote: item.quote,
+            return: display?.return ?? "--",
+            risk: item.risk === "进取" ? "激进" : item.risk,
+            uses: item.uses,
+            position: display?.position,
+            avatar: display?.avatar,
+          };
+        }));
+      })
+      .catch(() => setToast("人物接口暂不可用，已显示本地备用数据"));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -423,7 +453,7 @@ export default function Home() {
       if (savedMasters) {
         try {
           const ids = JSON.parse(savedMasters) as string[];
-          const validIds = ids.filter((id) => masters.some((master) => master.id === id));
+          const validIds = ids.filter((id) => fallbackMasters.some((master) => master.id === id));
           if (validIds.length) setSelected(validIds);
         } catch {
           window.localStorage.removeItem("oracle-capital-selected-masters");
@@ -539,6 +569,7 @@ export default function Home() {
 
       {view === "home" && (
         <HomeView
+          masters={masters}
           t={t}
           selected={selected}
           selectedMasters={selectedMasters}
@@ -549,7 +580,7 @@ export default function Home() {
           onOpenConversation={openSavedConversation}
         />
       )}
-      {view === "chat" && <ChatView selectedMasters={selectedMasters} initialQuestion={question} initialConversationId={conversationToOpen} onRestoreMasters={setSelected} onBack={() => setView("home")} wallet={wallet} onNeedWallet={() => setWalletOpen(true)} customApi={customApi} notify={setToast} />}
+      {view === "chat" && <ChatView masters={masters} selectedMasters={selectedMasters} initialQuestion={question} initialConversationId={conversationToOpen} onRestoreMasters={setSelected} onBack={() => setView("home")} wallet={wallet} onNeedWallet={() => setWalletOpen(true)} customApi={customApi} notify={setToast} />}
       {view === "profile" && <ProfileView wallet={wallet} onNeedWallet={() => setWalletOpen(true)} notify={setToast} />}
       {walletOpen && <WalletModal connected={wallet} onClose={() => setWalletOpen(false)} onConnect={(value) => { setWallet(value); window.localStorage.setItem("oracle-capital-wallet", JSON.stringify(value)); setWalletOpen(false); setToast(`${value.label} 已连接`); }} onDisconnect={() => { setWallet(null); window.localStorage.removeItem("oracle-capital-wallet"); setWalletOpen(false); setToast("钱包已断开"); }} notify={setToast} />}
       {apiOpen && <DeveloperApiModal current={customApi} onClose={() => setApiOpen(false)} onSave={(config) => { setCustomApi(config); setApiOpen(false); setToast("开发者 API 已加密保存并启用"); }} onRemove={() => { setCustomApi(null); setApiOpen(false); setToast("已恢复平台默认 API"); }} />}
@@ -559,6 +590,7 @@ export default function Home() {
 }
 
 function HomeView({
+  masters,
   t,
   selected,
   selectedMasters,
@@ -568,6 +600,7 @@ function HomeView({
   onTopic,
   onOpenConversation,
 }: {
+  masters: Master[];
   t: typeof translations.zh;
   selected: string[];
   selectedMasters: Master[];
@@ -585,7 +618,7 @@ function HomeView({
       counts[id] = (counts[id] ?? 0) + 1;
     }));
     return counts;
-  }, [conversations]);
+  }, [conversations, masters]);
 
   const filteredMasters = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -593,7 +626,7 @@ function HomeView({
       .filter((master) => !keyword || [master.name, master.en, master.school, master.quote]
         .some((field) => field.toLowerCase().includes(keyword)))
       .sort((first, second) => (usageByMaster[second.id] ?? 0) - (usageByMaster[first.id] ?? 0));
-  }, [search, usageByMaster]);
+  }, [masters, search, usageByMaster]);
 
   const usageValues = masters.map((master) => Math.log10((usageByMaster[master.id] ?? 0) + 1));
   const minUsage = Math.min(...usageValues);
@@ -602,7 +635,7 @@ function HomeView({
     const value = Math.log10((usageByMaster[master.id] ?? 0) + 1);
     const ratio = maxUsage === minUsage ? 0.5 : (value - minUsage) / (maxUsage - minUsage);
     return [master.id, Math.round(152 + ratio * 96)];
-  })), [maxUsage, minUsage, usageByMaster]);
+  })), [masters, maxUsage, minUsage, usageByMaster]);
 
   return (
     <>
@@ -943,6 +976,7 @@ function shortAddress(address: string) {
 }
 
 function ChatView({
+  masters,
   selectedMasters,
   initialQuestion,
   initialConversationId,
@@ -953,6 +987,7 @@ function ChatView({
   customApi,
   notify,
 }: {
+  masters: Master[];
   selectedMasters: Master[];
   initialQuestion: string;
   initialConversationId: string;
@@ -1055,7 +1090,6 @@ function ChatView({
     event?.preventDefault();
     const prompt = input.trim();
     if (!prompt || loading || paused) return;
-    const history = messages.filter((message) => message.role !== "system").slice(-8);
     setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", content: prompt }]);
     setInput("");
     setLoading(true);
@@ -1064,41 +1098,51 @@ function ChatView({
     setDecision(null);
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question: prompt,
-          masters: activeMasters.map(({ id, name, school, quote, risk }) => ({ id, name, school, quote, risk })),
-          history,
-          customApi,
-        }),
-      });
-      if (!response.ok) throw new Error("AI provider unavailable");
-      const data = await response.json() as {
-        replies: {
-          masterId: string;
-          content: string;
-          vote: "approve" | "abstain" | "reject";
-          confidence: number;
-        }[];
-        synthesis: string;
-        decision: CommitteeDecision;
-      };
+      const discussionInput = {
+        mode: activeMasters.length === 1 ? "single" : "council",
+        question: prompt,
+        masterId: activeMasters.length === 1 ? activeMasters[0].id : undefined,
+        masterIds: activeMasters.length > 1 ? activeMasters.map((master) => master.id) : undefined,
+      } as const;
+      const data = await streamAgentDiscussion(discussionInput)
+        .catch(() => createAgentDiscussion(discussionInput));
+      const opinions = new Map(data.opinions.map((opinion) => [opinion.masterId, opinion]));
+      const transcript = data.transcript.filter((message) => message.role !== "user" && message.stage !== "setup");
       setMessages((current) => [
         ...current,
-        ...data.replies.map((reply) => ({
-          id: crypto.randomUUID(),
-          role: "master" as const,
-          masterId: reply.masterId,
-          content: reply.content,
-          vote: reply.vote,
-          confidence: reply.confidence,
-        })),
-        { id: crypto.randomUUID(), role: "system", content: data.synthesis },
+        ...transcript.map((message) => {
+          const opinion = message.masterId ? opinions.get(message.masterId) : undefined;
+          return {
+            id: message.id,
+            role: message.role === "master" ? "master" as const : "system" as const,
+            masterId: message.masterId,
+            content: message.content,
+            vote: opinion?.vote,
+            confidence: opinion?.confidence,
+          };
+        }),
       ]);
-      setDecision(data.decision);
-      setShowPlan(true);
+      if (data.proposal) {
+        const voteCounts = data.opinions.reduce((counts, opinion) => {
+          counts[opinion.vote] += 1;
+          return counts;
+        }, { approve: 0, abstain: 0, reject: 0 });
+        const weightedVotes = voteCounts.approve + voteCounts.abstain * 0.5;
+        setDecision({
+          title: data.proposal.title,
+          thesis: data.proposal.thesis,
+          allocations: data.proposal.allocations,
+          riskLevel: data.proposal.riskLevel,
+          expectedReturn: data.proposal.expectedReturn,
+          maxDrawdown: data.proposal.maxDrawdown,
+          dissent: data.proposal.dissent,
+          steps: data.proposal.executionSteps,
+          consensusRate: data.opinions.length ? Math.round(weightedVotes / data.opinions.length * 100) : 0,
+          voteCounts,
+        });
+        setShowPlan(true);
+      }
+      if (data.demo) notify("AI 服务已进入后端演示模式");
     } catch {
       const fallback = activeMasters.map((master, index) => ({
         id: crypto.randomUUID(),

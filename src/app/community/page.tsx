@@ -118,11 +118,16 @@ export default function CommunityPage() {
     void getAgentMasters()
       .then((items) => {
         if (cancelled) return;
-        setOfficialMasters(items.map((item) => ({
-          ...item,
-          risk: item.risk === "进取" ? "激进" : item.risk,
-          avatar: masterAvatarPaths[item.id],
-        })));
+        const fallbackDisplay = new Map(fallbackCommunityMasters.map((master) => [master.id, master]));
+        setOfficialMasters(items.map((item) => {
+          const display = fallbackDisplay.get(item.id);
+          return {
+            ...item,
+            risk: item.risk === "进取" ? "激进" : item.risk,
+            avatar: masterAvatarPaths[item.id] ?? display?.avatar,
+            position: display?.position,
+          };
+        }));
       })
       .catch(() => setMessage("人物接口暂不可用，稍后请刷新重试"));
     return () => {

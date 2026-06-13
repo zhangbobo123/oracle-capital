@@ -115,6 +115,7 @@ Implemented in:
 Behavior:
 
 - load selected masters
+- reject the request if fewer than 2 valid selected masters remain
 - each master performs independent first-round analysis
 - moderator derives structured challenge points
 - each master responds to one challenge round
@@ -137,6 +138,7 @@ If the model call fails or DeepSeek is unavailable:
 
 - the backend falls back to demo opinions
 - the backend can still return a transcript and proposal shell
+- the response `demo` field is set to `true` if any council phase falls back, including synthesis
 
 ## API Contracts
 
@@ -193,6 +195,8 @@ Council example:
   "question": "请给我一个 ETH 现货和 DeFi 的三个月配置方案"
 }
 ```
+
+Council mode requires at least 2 valid selected masters. Unselected masters are not auto-added.
 
 Retry example:
 

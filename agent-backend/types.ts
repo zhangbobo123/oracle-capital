@@ -44,6 +44,18 @@ export type MasterProfile = {
   skillDescription?: string;
 };
 
+export type MasterCard = {
+  id: string;
+  name: string;
+  en: string;
+  school: string;
+  quote: string;
+  risk: "稳健" | "均衡" | "进取";
+  uses: number;
+  author: string;
+  description: string;
+};
+
 export type TranscriptMessage = {
   id: string;
   role: TranscriptRole;
@@ -112,3 +124,10 @@ export type DiscussionResponse = {
   satisfiedPrompt: string;
   demo: boolean;
 };
+
+export type DiscussionStreamEvent =
+  | { event: "meta"; data: { mode: DiscussionMode; runId: string; masters: MasterProfile[] } }
+  | { event: "message"; data: TranscriptMessage }
+  | { event: "opinion"; data: MasterOpinion }
+  | { event: "proposal"; data: CouncilProposal }
+  | { event: "done"; data: DiscussionResponse };

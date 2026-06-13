@@ -12,6 +12,7 @@ import type {
   CouncilProposal,
   DiscussionRequest,
   DiscussionResponse,
+  DiscussionStreamEvent,
   MasterId,
   MasterOpinion,
   MasterProfile,
@@ -21,11 +22,12 @@ import { clampConfidence, createId, normalizePercentages } from "./utils";
 
 export const runtime = "nodejs";
 
-function pickMasters(masterIds: MasterId[] | undefined, fallbackCount: number) {
-  const selected = [...new Set(masterIds ?? [])]
+type StreamEmit = (event: DiscussionStreamEvent) => Promise<void> | void;
+
+function pickMasters(masterIds: MasterId[] | undefined) {
+  return [...new Set(masterIds ?? [])]
     .map((id) => masterMap.get(id))
     .filter((master): master is MasterProfile => Boolean(master));
-  return selected.length >= 2 ? selected : masterRoster.slice(0, fallbackCount);
 }
 
 function toTranscriptMessage(
@@ -179,7 +181,12 @@ async function runSingleDiscussion(request: DiscussionRequest): Promise<Discussi
 }
 
 async function runCouncilDiscussion(request: DiscussionRequest): Promise<DiscussionResponse> {
-  const masters = await hydrateMasters(pickMasters(request.masterIds, 3));
+  const selectedMasters = pickMasters(request.masterIds);
+  if (selectedMasters.length < 2) {
+    throw new Error("Council mode requires at least 2 valid selected masters");
+  }
+
+  const masters = await hydrateMasters(selectedMasters);
   const transcript: TranscriptMessage[] = [
     toTranscriptMessage("system", "setup", `委员会已成立，共 ${masters.length} 位大师参与。`),
     toTranscriptMessage("user", "question", request.question),
@@ -209,7 +216,7 @@ async function runCouncilDiscussion(request: DiscussionRequest): Promise<Discuss
   );
 
   const opinions = firstRound.map((item) => item.opinion);
-  const demo = firstRound.some((item) => item.demo);
+  let demo = firstRound.some((item) => item.demo);
   for (const opinion of opinions) {
     const master = masterMap.get(opinion.masterId) ?? masters[0];
     transcript.push(toTranscriptMessage("master", "analysis", opinion.summary, master));
@@ -230,7 +237,10 @@ async function runCouncilDiscussion(request: DiscussionRequest): Promise<Discuss
     masters.map(async (master) => {
       const relatedChallenges = challenges.filter((item) => item.targetMasterId === master.id);
       if (!relatedChallenges.length) {
-        return opinions.find((item) => item.masterId === master.id) ?? buildDemoOpinion(master, request.question, request.feedbackNotes);
+        return {
+          opinion: opinions.find((item) => item.masterId === master.id) ?? buildDemoOpinion(master, request.question, request.feedbackNotes),
+          demo: false,
+        };
       }
       try {
         const result = await callDeepSeekJson<Partial<MasterOpinion>>([
@@ -243,19 +253,25 @@ async function runCouncilDiscussion(request: DiscussionRequest): Promise<Discuss
             content: buildChallengePrompt(master, request.question, relatedChallenges, request.feedbackNotes),
           },
         ]);
-        return normalizeOpinion(master, result);
+        return { opinion: normalizeOpinion(master, result), demo: false };
       } catch (error) {
         console.error(`Master rebuttal fallback for ${master.id}`, error);
         const original = opinions.find((item) => item.masterId === master.id);
         return {
-          ...(original ?? buildDemoOpinion(master, request.question, request.feedbackNotes)),
-          summary: `${master.name} 回应质疑：我保留原判断，但建议缩小试探仓位，并补充更多可验证数据。`,
+          opinion: {
+            ...(original ?? buildDemoOpinion(master, request.question, request.feedbackNotes)),
+            summary: `${master.name} 回应质疑：我保留原判断，但建议缩小试探仓位，并补充更多可验证数据。`,
+          },
+          demo: true,
         };
       }
     }),
   );
 
-  for (const opinion of rebuttalRound) {
+  demo = demo || rebuttalRound.some((item) => item.demo);
+  const rebuttalOpinions = rebuttalRound.map((item) => item.opinion);
+
+  for (const opinion of rebuttalOpinions) {
     const master = masterMap.get(opinion.masterId) ?? masters[0];
     transcript.push(toTranscriptMessage("master", "rebuttal", opinion.summary, master));
   }
@@ -271,7 +287,7 @@ async function runCouncilDiscussion(request: DiscussionRequest): Promise<Discuss
         role: "user",
         content: buildSynthesisPrompt(
           request.question,
-          rebuttalRound,
+          rebuttalOpinions,
           challenges,
           request.feedbackNotes,
           request.previousProposal ?? null,
@@ -286,10 +302,11 @@ async function runCouncilDiscussion(request: DiscussionRequest): Promise<Discuss
     };
   } catch (error) {
     console.error("Council synthesis fallback", error);
-    proposal = buildDemoProposal(rebuttalRound, request.feedbackNotes);
+    proposal = buildDemoProposal(rebuttalOpinions, request.feedbackNotes);
+    demo = true;
   }
 
-  const voteCounts = rebuttalRound.reduce(
+  const voteCounts = rebuttalOpinions.reduce(
     (counts, opinion) => {
       counts[opinion.vote] += 1;
       return counts;
@@ -316,7 +333,7 @@ async function runCouncilDiscussion(request: DiscussionRequest): Promise<Discuss
     runId: createId("run"),
     masters,
     transcript,
-    opinions: rebuttalRound,
+    opinions: rebuttalOpinions,
     proposal,
     satisfiedPrompt: "如果不满意，请带着修改意见重新发起同一议题，委员会会根据你的反馈重开一轮讨论。",
     demo,
@@ -332,4 +349,228 @@ export async function runDiscussion(request: DiscussionRequest) {
     return runSingleDiscussion({ ...request, question });
   }
   return runCouncilDiscussion({ ...request, question });
+}
+
+export async function streamDiscussion(request: DiscussionRequest, emit: StreamEmit) {
+  const question = request.question.trim();
+  if (!question) {
+    throw new Error("Question is required");
+  }
+
+  if (request.mode === "single") {
+    return streamSingleDiscussion({ ...request, question }, emit);
+  }
+
+  return streamCouncilDiscussion({ ...request, question }, emit);
+}
+
+async function streamSingleDiscussion(request: DiscussionRequest, emit: StreamEmit): Promise<DiscussionResponse> {
+  const master = await hydrateMasterSkill(masterMap.get(request.masterId ?? "buffett") ?? masterRoster[0]);
+  const runId = createId("run");
+  const transcript: TranscriptMessage[] = [];
+  const push = async (message: TranscriptMessage) => {
+    transcript.push(message);
+    await emit({ event: "message", data: message });
+  };
+
+  await emit({ event: "meta", data: { mode: "single", runId, masters: [master] } });
+
+  await push(toTranscriptMessage("system", "setup", "单个大师 agent 已就位。"));
+  await push(toTranscriptMessage("user", "question", request.question));
+
+  if (request.feedbackNotes) {
+    await push(toTranscriptMessage("system", "feedback", `用户要求重做：${request.feedbackNotes}`));
+  }
+
+  const prompt = buildSingleAgentPrompt(master, request.question, request.feedbackNotes, request.previousTranscript);
+  const { opinion, demo } = await runOpinion(master, prompt, request.question, request.feedbackNotes);
+  await emit({ event: "opinion", data: opinion });
+  await push(toTranscriptMessage("master", "analysis", opinion.summary, master));
+  await push(
+    toTranscriptMessage(
+      "moderator",
+      "summary",
+      `请确认你是否满意 ${master.name} 的回答。如果不满意，可以带着修改要求重新发起讨论。`,
+    ),
+  );
+
+  const response: DiscussionResponse = {
+    mode: "single",
+    runId,
+    masters: [master],
+    transcript,
+    opinions: [opinion],
+    proposal: null,
+    satisfiedPrompt: `如果不满意，请告诉系统你希望 ${master.name} 修正哪些地方，然后重新讨论。`,
+    demo,
+  };
+  await emit({ event: "done", data: response });
+  return response;
+}
+
+async function streamCouncilDiscussion(request: DiscussionRequest, emit: StreamEmit): Promise<DiscussionResponse> {
+  const selectedMasters = pickMasters(request.masterIds);
+  if (selectedMasters.length < 2) {
+    throw new Error("Council mode requires at least 2 valid selected masters");
+  }
+
+  const masters = await hydrateMasters(selectedMasters);
+  const runId = createId("run");
+  const transcript: TranscriptMessage[] = [];
+  const opinions: MasterOpinion[] = [];
+  let demo = false;
+
+  const push = async (message: TranscriptMessage) => {
+    transcript.push(message);
+    await emit({ event: "message", data: message });
+  };
+
+  await emit({ event: "meta", data: { mode: "council", runId, masters } });
+
+  await push(toTranscriptMessage("system", "setup", `委员会已成立，共 ${masters.length} 位大师参与。`));
+  await push(toTranscriptMessage("user", "question", request.question));
+
+  if (request.feedbackNotes) {
+    await push(toTranscriptMessage("system", "feedback", `用户不满意上一轮结果，希望本轮修正：${request.feedbackNotes}`));
+  }
+
+  await push(
+    toTranscriptMessage(
+      "moderator",
+      "setup",
+      "主持人：先请各位独立分析，不要互相模仿，再围绕核心分歧进行第二轮讨论。",
+    ),
+  );
+
+  for (const master of masters) {
+    const result = await runOpinion(
+      master,
+      buildCouncilAnalysisPrompt(master, request.question, request.feedbackNotes, request.previousTranscript),
+      request.question,
+      request.feedbackNotes,
+    );
+    demo = demo || result.demo;
+    opinions.push(result.opinion);
+    await emit({ event: "opinion", data: result.opinion });
+    await push(toTranscriptMessage("master", "analysis", result.opinion.summary, master));
+  }
+
+  const challenges = buildChallenges(opinions);
+  if (challenges.length) {
+    await push(
+      toTranscriptMessage(
+        "moderator",
+        "challenge",
+        "主持人：下面进入交叉质询。每位成员只回应一个最关键的分歧点。",
+      ),
+    );
+  }
+
+  const rebuttalOpinions: MasterOpinion[] = [];
+  for (const master of masters) {
+    const relatedChallenges = challenges.filter((item) => item.targetMasterId === master.id);
+    if (!relatedChallenges.length) {
+      const opinion = opinions.find((item) => item.masterId === master.id) ?? buildDemoOpinion(master, request.question, request.feedbackNotes);
+      rebuttalOpinions.push(opinion);
+      await emit({ event: "opinion", data: opinion });
+      await push(toTranscriptMessage("master", "rebuttal", opinion.summary, master));
+      continue;
+    }
+
+    try {
+      const result = await callDeepSeekJson<Partial<MasterOpinion>>([
+        {
+          role: "system",
+          content: "你擅长严格遵守人物风格边界，并且只输出 JSON。",
+        },
+        {
+          role: "user",
+          content: buildChallengePrompt(master, request.question, relatedChallenges, request.feedbackNotes),
+        },
+      ]);
+      const opinion = normalizeOpinion(master, result);
+      rebuttalOpinions.push(opinion);
+      await emit({ event: "opinion", data: opinion });
+      await push(toTranscriptMessage("master", "rebuttal", opinion.summary, master));
+    } catch (error) {
+      console.error(`Master rebuttal fallback for ${master.id}`, error);
+      demo = true;
+      const original = opinions.find((item) => item.masterId === master.id);
+      const opinion = {
+        ...(original ?? buildDemoOpinion(master, request.question, request.feedbackNotes)),
+        summary: `${master.name} 回应质疑：我保留原判断，但建议缩小试探仓位，并补充更多可验证数据。`,
+      };
+      rebuttalOpinions.push(opinion);
+      await emit({ event: "opinion", data: opinion });
+      await push(toTranscriptMessage("master", "rebuttal", opinion.summary, master));
+    }
+  }
+
+  let proposal: CouncilProposal;
+  try {
+    const result = await callDeepSeekJson<CouncilProposal>([
+      {
+        role: "system",
+        content: "你是一个严格的委员会主持人，只输出 JSON，并把分歧、风险和用户确认事项写清楚。",
+      },
+      {
+        role: "user",
+        content: buildSynthesisPrompt(
+          request.question,
+          rebuttalOpinions,
+          challenges,
+          request.feedbackNotes,
+          request.previousProposal ?? null,
+        ),
+      },
+    ]);
+    proposal = {
+      ...result,
+      allocations: normalizePercentages(result.allocations ?? []),
+      userConfirmationsRequired: (result.userConfirmationsRequired ?? []).filter(Boolean).slice(0, 5),
+      executionSteps: (result.executionSteps ?? []).filter(Boolean).slice(0, 5),
+    };
+  } catch (error) {
+    console.error("Council synthesis fallback", error);
+    proposal = buildDemoProposal(rebuttalOpinions, request.feedbackNotes);
+    demo = true;
+  }
+
+  const voteCounts = rebuttalOpinions.reduce(
+    (counts, opinion) => {
+      counts[opinion.vote] += 1;
+      return counts;
+    },
+    { approve: 0, abstain: 0, reject: 0 },
+  );
+
+  await push(
+    toTranscriptMessage(
+      "moderator",
+      "vote",
+      `投票结果：赞成 ${voteCounts.approve}，保留 ${voteCounts.abstain}，反对 ${voteCounts.reject}。`,
+    ),
+  );
+  await push(toTranscriptMessage("moderator", "summary", proposal.thesis));
+  await push(
+    toTranscriptMessage(
+      "system",
+      "summary",
+      "请检查委员会对话和最终方案。如果不满意，可以把不满意的原因发回来，系统会基于你的反馈重新开会。",
+    ),
+  );
+  await emit({ event: "proposal", data: proposal });
+
+  const response: DiscussionResponse = {
+    mode: "council",
+    runId,
+    masters,
+    transcript,
+    opinions: rebuttalOpinions,
+    proposal,
+    satisfiedPrompt: "如果不满意，请带着修改意见重新发起同一议题，委员会会根据你的反馈重开一轮讨论。",
+    demo,
+  };
+  await emit({ event: "done", data: response });
+  return response;
 }

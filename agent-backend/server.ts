@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { handleDiscussionRequest, handleMastersRequest } from "./http";
+import { handleDiscussionRequest, handleDiscussionStream, handleMastersRequest } from "./http";
 
 function sendJson(response: import("node:http").ServerResponse, statusCode: number, payload: unknown) {
   response.writeHead(statusCode, {
@@ -18,6 +18,15 @@ async function readJsonBody(request: import("node:http").IncomingMessage) {
   }
   if (!chunks.length) return {};
   return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+}
+
+function sendSseEvent(
+  response: import("node:http").ServerResponse,
+  event: string,
+  payload: unknown,
+) {
+  response.write(`event: ${event}\n`);
+  response.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
 const server = createServer(async (request, response) => {
@@ -40,6 +49,30 @@ const server = createServer(async (request, response) => {
       const body = await readJsonBody(request);
       const payload = await handleDiscussionRequest(body);
       sendJson(response, 200, payload);
+      return;
+    }
+
+    if (method === "POST" && url.pathname === "/discussions/stream") {
+      response.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      });
+
+      const body = await readJsonBody(request);
+      try {
+        await handleDiscussionStream(body, async (event) => {
+          sendSseEvent(response, event.event, event.data);
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to stream discussion";
+        sendSseEvent(response, "error", { error: message });
+      } finally {
+        response.end();
+      }
       return;
     }
 

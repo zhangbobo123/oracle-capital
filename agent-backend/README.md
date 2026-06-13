@@ -12,11 +12,14 @@
 ## 功能
 
 - `GET /masters`
-  - 返回全部大师席位，包含完整 `skillMarkdown`，供前端渲染 agent 卡片或详情抽屉。
+  - 返回前端可直接渲染的大师卡牌列表。
 - `POST /discussions`
   - `mode: "single"` 时运行单个大师。
   - `mode: "council"` 时运行多大师委员会。
   - 支持 `feedbackNotes`、`previousTranscript`、`previousProposal`，供用户不满意时重开讨论。
+- `POST /discussions/stream`
+  - 返回 SSE 事件流。
+  - 适合前端聊天框实时展示委员会讨论过程。
 
 ## 目录内入口
 
@@ -45,6 +48,26 @@
 3. 用户不满意时，通过 `feedbackNotes` 把修改要求带回下一轮。
 4. DeepSeek 不可用时自动退回 demo 模式，确保前端流程能继续走通。
 5. 每位大师的分析依据来自完整 skill 文件，而不是手写摘要。
+
+## `GET /masters` 返回格式
+
+```json
+{
+  "masters": [
+    {
+      "id": "buffett",
+      "name": "沃伦·巴菲特",
+      "en": "Warren Buffett",
+      "school": "优质价值",
+      "quote": "价格是你付出的，价值是你得到的。",
+      "risk": "稳健",
+      "uses": 0,
+      "author": "monarchjuno / vibe-investing",
+      "description": "Analyze an investment through Warren Buffett's long-term quality-and-value lens..."
+    }
+  ]
+}
+```
 
 ## 请求示例
 
@@ -89,6 +112,28 @@
 4. 把返回的 `transcript` 直接渲染进聊天框。
 5. 若 `proposal` 不为空，则把它渲染成最终方案卡。
 6. 用户点击“不满意”时，把 `feedbackNotes` 连同上一轮 `previousTranscript` 和 `previousProposal` 再发一次。
+
+## 流式聊天接法
+
+如果前端想让委员会消息一条条出现，可以调用：
+
+- `POST /discussions/stream`
+
+返回事件类型：
+
+- `meta`
+- `message`
+- `opinion`
+- `proposal`
+- `done`
+
+推荐前端做法：
+
+1. 用 `fetch()` 发起 POST 请求。
+2. 读取 `text/event-stream`。
+3. 每收到一个 `message` 事件，就把对应消息 append 到聊天列表。
+4. 收到 `proposal` 后更新方案卡。
+5. 收到 `done` 后把最终完整结果落进本地状态。
 
 ## 启动方式
 

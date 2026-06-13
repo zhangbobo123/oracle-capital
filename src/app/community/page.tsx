@@ -3,6 +3,7 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { getAgentMasters } from "@/lib/agent-api";
+import { masterAvatarPaths } from "@/lib/master-assets";
 import {
   ArrowLeft,
   Award,
@@ -120,6 +121,7 @@ export default function CommunityPage() {
         setOfficialMasters(items.map((item) => ({
           ...item,
           risk: item.risk === "进取" ? "激进" : item.risk,
+          avatar: masterAvatarPaths[item.id],
         })));
       })
       .catch(() => setMessage("人物接口暂不可用，稍后请刷新重试"));

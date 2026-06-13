@@ -3,6 +3,7 @@
 import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createAgentDiscussion, getAgentMasters, streamAgentDiscussion } from "@/lib/agent-api";
+import { masterAvatarPaths } from "@/lib/master-assets";
 import {
   ArrowLeft,
   ArrowRight,
@@ -411,7 +412,7 @@ export default function Home() {
             risk: item.risk === "进取" ? "激进" : item.risk,
             uses: item.uses,
             position: display?.position,
-            avatar: display?.avatar,
+            avatar: display?.avatar ?? masterAvatarPaths[item.id],
           };
         }));
       })

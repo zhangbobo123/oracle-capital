@@ -174,8 +174,18 @@ type SimulationAccount = {
   positions: SimulationPosition[];
   transactions: SimulationTransaction[];
   snapshots: { value: number; createdAt: number }[];
+  executedStrategies: {
+    id: string;
+    title: string;
+    amount: number;
+    consensusRate: number;
+    riskLevel: CommitteeDecision["riskLevel"];
+    allocations: { label: string; percentage: number; rationale: string; amount: number }[];
+    createdAt: number;
+  }[];
   lastStrategy?: {
     title: string;
+    amount: number;
     consensusRate: number;
     riskLevel: CommitteeDecision["riskLevel"];
     executedAt: number;
@@ -194,6 +204,7 @@ const defaultSimulationAccount = (): SimulationAccount => ({
   }],
   transactions: [],
   snapshots: [{ value: 10000, createdAt: Date.now() }],
+  executedStrategies: [],
 });
 
 const simulationTotal = (account: SimulationAccount) => account.positions.reduce((sum, position) => sum + position.value, 0);
@@ -208,6 +219,7 @@ function loadSimulationAccount(): SimulationAccount {
         positions: parsed.positions,
         transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
         snapshots: Array.isArray(parsed.snapshots) && parsed.snapshots.length ? parsed.snapshots : [{ value: parsed.positions.reduce((sum, item) => sum + item.value, 0), createdAt: Date.now() }],
+        executedStrategies: Array.isArray(parsed.executedStrategies) ? parsed.executedStrategies : [],
         lastStrategy: parsed.lastStrategy,
       };
     }
@@ -216,6 +228,7 @@ function loadSimulationAccount(): SimulationAccount {
     migrated.positions[0].costBasis = migrated.positions[0].value;
     migrated.transactions = Array.isArray(parsed.transactions) ? parsed.transactions : [];
     migrated.snapshots = [{ value: migrated.positions[0].value, createdAt: Date.now() }];
+    migrated.executedStrategies = Array.isArray(parsed.executedStrategies) ? parsed.executedStrategies : [];
     return migrated;
   } catch {
     window.localStorage.removeItem("oracle-capital-simulation");
@@ -226,26 +239,6 @@ function loadSimulationAccount(): SimulationAccount {
 function saveSimulationAccount(account: SimulationAccount) {
   window.localStorage.setItem("oracle-capital-simulation", JSON.stringify(account));
   window.dispatchEvent(new CustomEvent("oracle-capital-simulation-updated"));
-}
-
-function allocationPosition(item: CommitteeDecision["allocations"][number], total: number): SimulationPosition {
-  const normalized = item.label.toUpperCase();
-  const stable = /USDC|USDT|现金|机动|稳定/.test(normalized);
-  const chain: SimulationPosition["chain"] = /SOL|SOLANA/.test(normalized)
-    ? "Solana"
-    : /BNB|BSC/.test(normalized)
-      ? "BNB Chain"
-      : "Ethereum";
-  const symbol = stable ? "USDC" : (normalized.match(/\b[A-Z]{2,6}\b/)?.[0] ?? item.label.slice(0, 8));
-  return {
-    id: `${chain}-${symbol}-${crypto.randomUUID()}`,
-    label: stable ? "USD Coin" : item.label,
-    symbol,
-    chain: stable ? "Ethereum" : chain,
-    value: total * item.percentage / 100,
-    costBasis: total * item.percentage / 100,
-    rationale: item.rationale,
-  };
 }
 
 declare global {
@@ -1278,25 +1271,71 @@ function ChatView({
 function TradePreview({ onBack, decision, wallet, onNeedWallet, notify }: { onBack: () => void; decision: CommitteeDecision; wallet: ConnectedWallet | null; onNeedWallet: () => void; notify: (message: string) => void }) {
   const [accepted, setAccepted] = useState(false);
   const [status, setStatus] = useState<"ready" | "signing" | "done">("ready");
+  const [amount, setAmount] = useState("");
+  const [available, setAvailable] = useState(0);
+
+  useEffect(() => {
+    const refresh = () => {
+      const current = loadSimulationAccount();
+      const usdc = current.positions.find((position) => position.symbol === "USDC" && position.chain === "Ethereum");
+      setAvailable(usdc?.value ?? 0);
+    };
+    const timer = window.setTimeout(refresh, 0);
+    window.addEventListener("oracle-capital-simulation-updated", refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("oracle-capital-simulation-updated", refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
+
   const execute = () => {
+    const investAmount = Number(amount);
+    if (!Number.isFinite(investAmount) || investAmount <= 0) {
+      notify("请输入有效投资金额");
+      return;
+    }
     setStatus("signing");
     window.setTimeout(() => {
       const current = loadSimulationAccount();
-      const total = simulationTotal(current);
-      const positions = decision.allocations.map((item) => allocationPosition(item, total));
+      const positions = current.positions.map((position) => ({ ...position }));
+      let usdc = positions.find((position) => position.symbol === "USDC" && position.chain === "Ethereum");
+      if (!usdc || usdc.value < investAmount) {
+        setStatus("ready");
+        notify("Ethereum USDC 可用余额不足");
+        return;
+      }
+      usdc.value -= investAmount;
+      usdc.costBasis = Math.max(0, usdc.costBasis - investAmount);
+      const executedAllocations = decision.allocations.map((item) => ({
+        ...item,
+        amount: investAmount * item.percentage / 100,
+      }));
+      const nextPositions = positions.filter((position) => position.value > 0.0001);
       const next: SimulationAccount = {
-        positions,
+        positions: nextPositions,
         transactions: [{
           id: crypto.randomUUID(),
           type: "strategy" as const,
-          amount: total,
+          amount: investAmount,
           fee: 0,
           label: decision.title,
           createdAt: Date.now(),
         }, ...current.transactions].slice(0, 30),
-        snapshots: [...current.snapshots, { value: total, createdAt: Date.now() }].slice(-30),
+        snapshots: [...current.snapshots, { value: simulationTotal({ ...current, positions: nextPositions }), createdAt: Date.now() }].slice(-30),
+        executedStrategies: [{
+          id: crypto.randomUUID(),
+          title: decision.title,
+          amount: investAmount,
+          consensusRate: decision.consensusRate,
+          riskLevel: decision.riskLevel,
+          allocations: executedAllocations,
+          createdAt: Date.now(),
+        }, ...current.executedStrategies].slice(0, 20),
         lastStrategy: {
           title: decision.title,
+          amount: investAmount,
           consensusRate: decision.consensusRate,
           riskLevel: decision.riskLevel,
           executedAt: Date.now(),
@@ -1317,6 +1356,14 @@ function TradePreview({ onBack, decision, wallet, onNeedWallet, notify }: { onBa
         {decision.allocations.map((item) => <div key={item.label} className="flex justify-between gap-4 border-b border-[var(--line)] pb-3"><span className="text-[var(--muted)]">{item.label}</span><span>{item.percentage}%</span></div>)}
         <div className="flex justify-between border-b border-[var(--line)] pb-3"><span className="text-[var(--muted)]">共识率</span><span>{decision.consensusRate}%</span></div>
         <div className="flex justify-between border-b border-[var(--line)] pb-3"><span className="text-[var(--muted)]">风险等级</span><span>{decision.riskLevel}</span></div>
+      </div>
+      <div className="mt-5 rounded-lg bg-[var(--panel-soft)] p-3">
+        <div className="text-[10px] text-[var(--muted)]">本次投资金额（USD）</div>
+        <div className="mt-2 flex gap-2">
+          <input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" placeholder="例如 1500" className="min-w-0 flex-1 rounded-full border border-[var(--line)] bg-transparent px-4 py-2 text-sm outline-none" />
+          <button type="button" onClick={() => setAmount(available ? available.toFixed(2) : "")} className="secondary-btn px-4">全部</button>
+        </div>
+        <p className="mt-2 text-[10px] text-[var(--muted)]">当前可用 Ethereum USDC：${available.toLocaleString("en-US", { maximumFractionDigits: 2 })}</p>
       </div>
       <label className="mt-5 flex items-start gap-3 rounded-lg bg-[var(--panel-soft)] p-3 text-xs leading-5">
         <input checked={accepted} onChange={(event) => setAccepted(event.target.checked)} type="checkbox" className="mt-1 accent-[var(--green)]" /> 我已阅读风险摘要，并理解这是黑客松模拟交易，不会广播到链上。
@@ -1344,6 +1391,7 @@ function ProfileView({ wallet, onNeedWallet, notify }: { wallet: ConnectedWallet
     positions: [{ id: "ethereum-usdc", label: "USD Coin", symbol: "USDC", chain: "Ethereum", value: 10000, costBasis: 10000, rationale: "默认模拟资产与策略结算资金" }],
     transactions: [],
     snapshots: [],
+    executedStrategies: [],
   });
   const [cashAction, setCashAction] = useState<"deposit" | "withdraw" | null>(null);
   const [amount, setAmount] = useState("");
@@ -1486,7 +1534,7 @@ function ProfileView({ wallet, onNeedWallet, notify }: { wallet: ConnectedWallet
         </div>
       </div>
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[["资金利用率", `${totalValue ? (investedValue / totalValue * 100).toFixed(1) : "0.0"}%`, "非 USDC 策略仓位"], ["稳定币占比", `${stableRatio.toFixed(1)}%`, "Ethereum USDC"], ["最大仓位", `${concentration.toFixed(1)}%`, riskLabel], ["最近共识", account.lastStrategy ? `${account.lastStrategy.consensusRate}%` : "—", account.lastStrategy?.title ?? "尚未执行 AI 方案"]].map(([label, value, note]) => <div key={label} className="stat-card"><div className="text-xs text-[var(--muted)]">{label}</div><div className="mt-3 font-serif text-3xl">{value}</div><div className="mt-2 truncate text-[10px] text-[var(--positive)]">{note}</div></div>)}
+        {[["资金利用率", `${totalValue ? (investedValue / totalValue * 100).toFixed(1) : "0.0"}%`, "非 USDC 策略仓位"], ["稳定币占比", `${stableRatio.toFixed(1)}%`, "Ethereum USDC"], ["最大仓位", `${concentration.toFixed(1)}%`, riskLabel], ["最近共识", account.lastStrategy ? `${account.lastStrategy.consensusRate}%` : "—", account.lastStrategy ? `${account.lastStrategy.title} · $${account.lastStrategy.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "尚未执行 AI 方案"]].map(([label, value, note]) => <div key={label} className="stat-card"><div className="text-xs text-[var(--muted)]">{label}</div><div className="mt-3 font-serif text-3xl">{value}</div><div className="mt-2 truncate text-[10px] text-[var(--positive)]">{note}</div></div>)}
       </div>
       <div className="mt-4 grid gap-4 md:grid-cols-2">
         <button onClick={() => setCashAction("deposit")} className="stat-card flex items-center gap-4 text-left"><span className="grid h-12 w-12 place-items-center rounded-full bg-[var(--wash)]"><ArrowDownToLine size={20} /></span><span><strong>模拟充值</strong><span className="mt-1 block text-xs text-[var(--muted)]">即时增加模拟盘可用余额</span></span></button>
@@ -1502,6 +1550,35 @@ function ProfileView({ wallet, onNeedWallet, notify }: { wallet: ConnectedWallet
           <h2 className="font-serif text-xl">链与风险分析</h2>
           <div className="mt-6 space-y-5">{chainAllocation.map((item) => { const percentage = totalValue ? item.value / totalValue * 100 : 0; return <div key={item.chain}><div className="mb-2 flex justify-between text-xs"><span>{item.chain}</span><span>{percentage.toFixed(1)}%</span></div><div className="h-1.5 overflow-hidden rounded-full bg-[var(--wash)]"><div className="h-full bg-[var(--green)]" style={{ width: `${percentage}%` }} /></div></div>; })}</div>
           <div className="mt-6 border-t border-[var(--line)] pt-5 text-xs leading-6"><div className="flex justify-between"><span className="text-[var(--muted)]">组合类型</span><strong>{riskLabel}</strong></div><div className="flex justify-between"><span className="text-[var(--muted)]">活跃网络</span><strong>{chainAllocation.length}</strong></div><div className="flex justify-between"><span className="text-[var(--muted)]">策略风险</span><strong>{account.lastStrategy?.riskLevel ?? "稳健"}</strong></div></div>
+        </div>
+      </div>
+      <div className="mt-4 stat-card">
+        <div className="flex items-center justify-between"><div><h2 className="font-serif text-xl">已执行方案</h2><p className="mt-1 text-[10px] text-[var(--muted)]">与模拟持仓分开展示，便于复盘</p></div><span className="rounded-full bg-[var(--wash)] px-3 py-1 text-[10px]">{account.executedStrategies.length} 次执行</span></div>
+        <div className="mt-5 divide-y divide-[var(--line)]">
+          {account.executedStrategies.length ? account.executedStrategies.map((strategy) => (
+            <div key={strategy.id} className="py-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <strong className="text-sm">{strategy.title}</strong>
+                <span className="text-[10px] text-[var(--muted)]">{new Date(strategy.createdAt).toLocaleString("zh-CN")}</span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-[var(--muted)]">
+                <span>投入 ${strategy.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>
+                <span>共识率 {strategy.consensusRate}%</span>
+                <span>风险 {strategy.riskLevel}</span>
+              </div>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {strategy.allocations.map((item) => (
+                  <div key={`${strategy.id}-${item.label}`} className="rounded-lg bg-[var(--panel-soft)] p-3 text-xs">
+                    <div className="flex justify-between">
+                      <span>{item.label}</span>
+                      <span>{item.percentage}%</span>
+                    </div>
+                    <div className="mt-1 text-[10px] text-[var(--muted)]">${item.amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )) : <p className="py-5 text-sm text-[var(--muted)]">暂无执行记录。先在对话中确认一次模拟执行。</p>}
         </div>
       </div>
       <div className="mt-4 stat-card">

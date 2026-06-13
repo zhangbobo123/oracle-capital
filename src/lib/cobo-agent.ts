@@ -54,6 +54,9 @@ function authHeaders(config: CoboAgentConfig) {
   if (config.apiKey && !headers.Authorization) {
     headers.Authorization = `Bearer ${config.apiKey}`;
   }
+  if (config.apiKey && !headers["X-API-Key"]) {
+    headers["X-API-Key"] = config.apiKey;
+  }
   return headers;
 }
 
@@ -67,7 +70,13 @@ async function callAgent<T>(
   payload: Record<string, unknown>,
 ) {
   const method = descriptor.method ?? "POST";
-  const url = buildUrl(config, descriptor);
+  const url = new URL(buildUrl(config, descriptor));
+  if (method === "GET") {
+    for (const [key, value] of Object.entries(payload)) {
+      if (value === undefined || value === null || value === "") continue;
+      url.searchParams.set(key, String(value));
+    }
+  }
   const response = await fetch(url, {
     method,
     headers: authHeaders(config),
@@ -94,6 +103,18 @@ function toNumber(value: unknown) {
 export function normalizeBalances(payload: unknown): WalletBalance[] {
   if (!payload || typeof payload !== "object") return [];
   const data = payload as Record<string, unknown>;
+  if (Array.isArray(data.result)) {
+    return data.result.map((item) => {
+      const row = item as Record<string, unknown>;
+      const tokenId = String(row.token_id ?? row.symbol ?? "UNKNOWN");
+      const symbol = tokenId.includes("_") ? tokenId.split("_").pop() ?? tokenId : tokenId;
+      return {
+        chain: String(row.chain_id ?? row.chain ?? "Cobo"),
+        symbol,
+        balance: toNumber(row.amount ?? row.balance ?? row.total),
+      };
+    });
+  }
   if (Array.isArray(data.balances)) {
     return data.balances.map((item) => {
       const row = item as Record<string, unknown>;
@@ -164,8 +185,11 @@ export async function connectCobo(config: CoboAgentConfig) {
 }
 
 export async function getCoboBalances(config: CoboAgentConfig) {
-  const descriptor = endpoint(config, "balance", { path: "/balance", method: "POST" });
-  const payload = await callAgent<Record<string, unknown>>(config, descriptor, { walletId: config.walletId });
+  const descriptor = endpoint(config, "balance", { path: "/api/v1/wallets/balances", method: "GET" });
+  const payload = await callAgent<Record<string, unknown>>(config, descriptor, {
+    wallet_uuid: config.walletId,
+    limit: 100,
+  });
   return {
     balances: normalizeBalances(payload),
     raw: payload,

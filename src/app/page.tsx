@@ -1551,11 +1551,15 @@ function ProfileView({
           cache: "no-store",
         })
         : await fetch(`/api/portfolio?kind=${wallet.kind}&address=${encodeURIComponent(wallet.address)}`, { cache: "no-store" });
-      if (!response.ok) throw new Error("Portfolio API failed");
+      if (!response.ok) {
+        const detail = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(detail?.error || "Portfolio API failed");
+      }
       const data = await response.json() as { balances: WalletBalance[] };
       setWalletBalances(data.balances);
-    } catch {
-      notify("链上余额读取失败，请稍后重试");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "链上余额读取失败，请稍后重试";
+      notify(message);
     } finally {
       setPortfolioLoading(false);
     }

@@ -50,7 +50,7 @@ function normalizeOpinion(master: MasterProfile, result: Partial<MasterOpinion>)
   return {
     masterId: master.id,
     stance: result.stance === "bullish" || result.stance === "bearish" ? result.stance : "neutral",
-    summary: result.summary?.trim() || `${master.name} 暂时保持谨慎，建议先补充可验证信息。`,
+    summary: result.summary?.trim() || "我暂时保持谨慎，建议你先补充更多可验证的信息。",
     thesis: (result.thesis ?? []).filter(Boolean).slice(0, 3),
     risks: (result.risks ?? []).filter(Boolean).slice(0, 3),
     neededData: (result.neededData ?? []).filter(Boolean).slice(0, 3),
@@ -61,17 +61,17 @@ function normalizeOpinion(master: MasterProfile, result: Partial<MasterOpinion>)
 }
 
 function buildDemoOpinion(master: MasterProfile, question: string, feedbackNotes?: string): MasterOpinion {
-  const feedback = feedbackNotes ? `用户要求修正：${feedbackNotes}。` : "";
+  const feedback = feedbackNotes ? `你补充说这轮要修正：${feedbackNotes}。` : "";
   return {
     masterId: master.id,
     stance: master.riskBias === "aggressive" ? "bullish" : "neutral",
-    summary: `${master.name} 从${master.school}视角认为，问题“${question}”需要先确认仓位边界、催化剂与风险承受能力。${feedback}在信息不足时不建议一步到位重仓。`,
+    summary: `我先给结论：面对“${question}”这个问题，我会先确认仓位边界、催化剂和你的风险承受能力。${feedback}在信息不足时，我不建议你一步到位重仓。`,
     thesis: [
-      `${master.name} 会先沿着完整 skill 中的核心分析顺序展开判断`,
-      `${master.name} 会按 skill 里的决策规则来决定是否行动`,
+      "我会先沿着这套完整 skill 里的核心分析顺序展开判断",
+      "我会按这套 skill 的决策规则来决定现在该不该行动",
     ],
     risks: [
-      `${master.name} 的完整 skill 会优先排查隐藏风险和错误定价`,
+      "我会优先排查隐藏风险、错误定价和结构性脆弱点",
       "信息不足导致误判",
     ],
     neededData: [
@@ -260,7 +260,7 @@ async function runCouncilDiscussion(request: DiscussionRequest): Promise<Discuss
         return {
           opinion: {
             ...(original ?? buildDemoOpinion(master, request.question, request.feedbackNotes)),
-            summary: `${master.name} 回应质疑：我保留原判断，但建议缩小试探仓位，并补充更多可验证数据。`,
+            summary: "我保留原判断，但会把试探仓位缩小一些，并要求先补充更多可验证的数据再继续推进。",
           },
           demo: true,
         };
@@ -498,7 +498,7 @@ async function streamCouncilDiscussion(request: DiscussionRequest, emit: StreamE
       const original = opinions.find((item) => item.masterId === master.id);
       const opinion = {
         ...(original ?? buildDemoOpinion(master, request.question, request.feedbackNotes)),
-        summary: `${master.name} 回应质疑：我保留原判断，但建议缩小试探仓位，并补充更多可验证数据。`,
+        summary: "我保留原判断，但会把试探仓位缩小一些，并要求先补充更多可验证的数据再继续推进。",
       };
       rebuttalOpinions.push(opinion);
       await emit({ event: "opinion", data: opinion });

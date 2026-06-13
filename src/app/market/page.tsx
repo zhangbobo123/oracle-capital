@@ -31,6 +31,7 @@ type MarketAsset = {
   name: string;
   chain: string;
   color: string;
+  artwork: string;
   price: number | null;
   change24h: number | null;
   change7d: number | null;
@@ -208,7 +209,7 @@ export default function MarketPage() {
               <div className="market-metric">
                 <div className="flex items-center justify-between"><span>{summary.totalMarketCap !== null ? "核心资产总市值" : `核心资产平均涨跌 · ${period}`}</span><CircleDollarSign size={17} /></div>
                 <strong>{summary.totalMarketCap !== null ? compactUsd(summary.totalMarketCap) : percent(summary.averageChange)}</strong>
-                <p>{summary.totalMarketCap !== null ? "ETH、BNB、SOL 合计" : "ETH、BNB、SOL 等权平均"}</p>
+                <p>{summary.totalMarketCap !== null ? "六大核心资产合计" : "BTC、ETH、SOL、BNB、XRP、DOGE 等权平均"}</p>
               </div>
               <div className="market-metric">
                 <div className="flex items-center justify-between"><span>{summary.totalVolume !== null ? "24h 成交量" : `相对强势 · ${period}`}</span><Waves size={17} /></div>
@@ -239,7 +240,7 @@ export default function MarketPage() {
           </div>
         </div>
 
-        <div className="mt-7 grid gap-5 lg:grid-cols-3">
+        <div className="mt-7 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {data?.assets.map((asset) => {
             const change = period === "24h" ? asset.change24h : asset.change7d;
             const positive = (asset.change7d ?? asset.change24h ?? 0) >= 0;
@@ -247,7 +248,12 @@ export default function MarketPage() {
               ? Math.min(100, Math.max(0, ((asset.price - asset.low24h) / (asset.high24h - asset.low24h || 1)) * 100))
               : 50;
             return (
-              <article key={asset.symbol} className="market-asset-card" style={{ "--asset-color": asset.color } as React.CSSProperties}>
+              <article key={asset.symbol} className="market-asset-card group" style={{ "--asset-color": asset.color } as React.CSSProperties}>
+                <div className="market-asset-art">
+                  <div className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-105" style={{ backgroundImage: `url('${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}${asset.artwork}')` }} />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/5 to-transparent" />
+                  <span className="absolute bottom-4 left-4 rounded-full border border-white/25 bg-black/30 px-3 py-1 text-[10px] font-semibold tracking-[0.18em] text-white backdrop-blur">ORIGINAL ART · {asset.symbol}</span>
+                </div>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <span className="grid h-11 w-11 place-items-center rounded-full text-sm font-bold text-[#101713]" style={{ background: asset.color }}>{asset.symbol.slice(0, 1)}</span>
@@ -267,7 +273,7 @@ export default function MarketPage() {
                 <div className="mt-6 grid grid-cols-2 gap-x-4 gap-y-4 border-t border-[var(--line)] pt-5 text-xs">
                   <div><span className="text-[var(--muted)]">市值</span><strong className="mt-1 block">{compactUsd(asset.marketCap)}</strong></div>
                   <div><span className="text-[var(--muted)]">24h 成交量</span><strong className="mt-1 block">{compactUsd(asset.volume24h)}</strong></div>
-                  <div><span className="text-[var(--muted)]">链 TVL</span><strong className="mt-1 block">{compactUsd(asset.tvl)}</strong></div>
+                  <div><span className="text-[var(--muted)]">链 TVL</span><strong className="mt-1 block">{asset.tvl > 0 ? compactUsd(asset.tvl) : "不适用"}</strong></div>
                   <div><span className="text-[var(--muted)]">距历史高点</span><strong className={`mt-1 block ${(asset.athChange ?? 0) < -50 ? "text-[var(--muted)]" : ""}`}>{percent(asset.athChange)}</strong></div>
                 </div>
                 <Link href={`/?question=${encodeURIComponent(`结合最新市场数据，分析 ${asset.symbol} 的现货、DeFi 和合约机会，并给出仓位、入场区间、止损与分批计划`)}`} className="mt-6 flex items-center justify-between rounded-xl bg-[var(--panel-soft)] px-4 py-3 text-xs font-semibold text-[var(--green)] transition hover:translate-x-0.5">
@@ -286,7 +292,7 @@ export default function MarketPage() {
             <div className="mt-3 flex items-end justify-between gap-4"><h2 className="font-serif text-3xl">多链流动性对比</h2><span className="text-xs text-[var(--muted)]">TVL 与原生资产市值口径</span></div>
             <div className="mt-6 overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--panel)]">
               <div className="hidden grid-cols-[1.2fr_1fr_1fr_1fr] border-b border-[var(--line)] px-5 py-3 text-[10px] uppercase tracking-wider text-[var(--muted)] sm:grid"><span>网络</span><span>TVL</span><span>TVL / 市值</span><span>流动性占比</span></div>
-              {data?.assets.map((asset) => {
+              {data?.assets.filter((asset) => asset.tvl > 0).map((asset) => {
                 const tvlShare = summary.totalTvl ? (asset.tvl / summary.totalTvl) * 100 : 0;
                 const efficiency = asset.marketCap ? (asset.tvl / asset.marketCap) * 100 : null;
                 return (
@@ -307,10 +313,10 @@ export default function MarketPage() {
             <p className="mt-3 text-sm leading-7 text-[var(--muted)]">按当前 {period} 涨跌排序。相对强势不代表适合追涨，应结合成交量、TVL 和风险承受能力判断。</p>
             <div className="mt-6 space-y-4 border-t border-[var(--line)] pt-5">
               <div className="flex items-center justify-between text-xs"><span className="text-[var(--muted)]">平均涨跌</span><ChangeBadge value={summary.averageChange} /></div>
-              <div className="flex items-center justify-between text-xs"><span className="text-[var(--muted)]">自选资产</span><strong>{watchlist.length} / 3</strong></div>
+              <div className="flex items-center justify-between text-xs"><span className="text-[var(--muted)]">自选资产</span><strong>{watchlist.length} / 6</strong></div>
               <div className="flex items-center justify-between text-xs"><span className="text-[var(--muted)]">数据源</span><strong>{data?.sources.map((source) => source.name).join(" + ") ?? "—"}</strong></div>
             </div>
-            <Link href={`/?question=${encodeURIComponent(`比较 ETH、BNB、SOL 当前的相对强弱、链上 TVL 和风险收益，投票选出一个最值得关注的方向，并给出最终方案`)}`} className="primary-btn mt-7 w-full"><Bot size={15} />发起三链委员会</Link>
+            <Link href={`/?question=${encodeURIComponent(`比较 BTC、ETH、SOL、BNB、XRP、DOGE 当前的相对强弱、市场流动性和风险收益，投票选出最值得关注的方向，并给出最终方案`)}`} className="primary-btn mt-7 w-full"><Bot size={15} />发起六币委员会</Link>
           </aside>
         </div>
       </section>

@@ -116,7 +116,7 @@ const chapters: DocChapter[] = [
     intro: "市场页面聚合核心资产价格和链上 TVL，让用户在进入 AI 分析前先了解基础市场状态。",
     icon: BarChart3,
     items: [
-      { title: "核心资产", description: "展示 ETH、BNB 和 SOL 的价格、24h/7d 涨跌、市值、成交量、日内高低、历史高点和 7 日走势。" },
+      { title: "核心资产", description: "固定展示 BTC、ETH、SOL、BNB、XRP、DOGE，并提供价格、24h/7d 涨跌、市值、成交量、日内高低、历史高点、7 日走势和独立原创视觉。" },
       { title: "市场总览", description: "汇总核心资产总市值、24h 成交量、三链 TVL、市场温度和相对强势信号。" },
       { title: "多链 TVL", description: "对比 Ethereum、BSC 和 Solana 的 TVL、TVL/市值以及流动性占比。" },
       { title: "交互工具", description: "支持 24h/7d 周期切换、资产收藏、数据刷新和更新时间展示。" },

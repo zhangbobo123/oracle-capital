@@ -13,7 +13,7 @@
 - 投票机制、共识率和最终方案
 - 历史会话与人物组合恢复
 - 人物社区排行榜、人物JSON 上传与下载
-- ETH、BNB、SOL 实时价格和多链 TVL
+- BTC、ETH、SOL、BNB、XRP、DOGE 实时行情、原创资产视觉和多链 TVL
 - MetaMask/EVM、Phantom/Solana 钱包连接
 - 链上原生资产余额
 - Ethereum USDC 模拟账户、AI 方案持仓联动和资产分析

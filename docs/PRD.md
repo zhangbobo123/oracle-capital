@@ -16,7 +16,7 @@
 - 首页官方人物共 13 位：巴菲特、芒格、林奇、牛顿、哈耶克、马克思、亚当·斯密、凯恩斯、索罗斯、利弗莫尔、墨子、老子、爱因斯坦。
 - 社区额外提供阿峰、凉兮、霍金 3 位专属人物，不进入首页委员会。
 - 钱包：MetaMask/EVM 与 Phantom/Solana；WalletConnect 仅保留入口。
-- 市场：ETH、BNB、SOL 价格及 Ethereum、BSC、Solana TVL。
+- 市场：BTC、ETH、SOL、BNB、XRP、DOGE 行情及 Ethereum、BSC、Solana TVL。
 - 资产：EVM 原生 ETH/BNB 和 Solana 原生 SOL。
 - 资金：本地模拟盘；真实资产保持非托管。
 
@@ -163,7 +163,8 @@ DeepSeek 失败时：
 - 行情：CoinGecko，包含价格、24h/7d 涨跌、市值、成交量、日内高低、历史高点和 7 日走势；CoinGecko 不可用时使用 DefiLlama Coins 的 168 小时真实价格序列计算涨跌、日内区间和走势。
 - TVL：DefiLlama Chains。
 - 价格缓存约 60 秒，TVL 缓存约 300 秒。
-- 顶部展示核心资产总市值、24h 成交量、三链 TVL 和市场温度。
+- 六个资产固定按 BTC、ETH、SOL、BNB、XRP、DOGE 排列，每张卡片展示对应原创概念艺术。
+- 顶部展示六个核心资产总市值、24h 成交量、三链 TVL 和市场温度。
 - 支持 24h/7d 周期切换、资产收藏、日内价格区间和相对强势信号。
 - 展示 Ethereum、BSC、Solana 的 TVL、TVL/市值和流动性占比。
 - 数据缺失时显示“—”，不填充假数据。

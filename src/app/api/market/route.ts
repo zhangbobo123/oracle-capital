@@ -4,9 +4,12 @@ export const revalidate = 60;
 export const dynamic = "force-dynamic";
 
 const assetConfig = [
-  { id: "ethereum", symbol: "ETH", name: "Ethereum", chain: "Ethereum", color: "#627eea" },
-  { id: "binancecoin", symbol: "BNB", name: "BNB", chain: "BSC", color: "#f3ba2f" },
-  { id: "solana", symbol: "SOL", name: "Solana", chain: "Solana", color: "#14f195" },
+  { id: "bitcoin", symbol: "BTC", name: "Bitcoin", chain: "Bitcoin", color: "#f7931a", artwork: "/images/coins/btc.webp" },
+  { id: "ethereum", symbol: "ETH", name: "Ethereum", chain: "Ethereum", color: "#627eea", artwork: "/images/coins/eth.webp", tvlChain: "Ethereum" },
+  { id: "solana", symbol: "SOL", name: "Solana", chain: "Solana", color: "#14f195", artwork: "/images/coins/sol.webp", tvlChain: "Solana" },
+  { id: "binancecoin", symbol: "BNB", name: "BNB", chain: "BSC", color: "#f3ba2f", artwork: "/images/coins/bnb.webp", tvlChain: "BSC" },
+  { id: "ripple", symbol: "XRP", name: "XRP", chain: "XRP Ledger", color: "#7f8c99", artwork: "/images/coins/xrp.webp" },
+  { id: "dogecoin", symbol: "DOGE", name: "Dogecoin", chain: "Dogecoin", color: "#c2a633", artwork: "/images/coins/doge.webp" },
 ] as const;
 
 type CoinGeckoMarket = {
@@ -53,8 +56,9 @@ async function loadMarkets() {
 }
 
 async function loadFallbackPrices() {
+  const coins = assetConfig.map((asset) => `coingecko:${asset.id}`).join(",");
   const response = await fetch(
-    "https://coins.llama.fi/prices/current/coingecko:ethereum,coingecko:binancecoin,coingecko:solana",
+    `https://coins.llama.fi/prices/current/${coins}`,
     { next: { revalidate: 60 } },
   );
   if (!response.ok) return new Map<string, number>();
@@ -114,7 +118,9 @@ export async function GET() {
       const sampledSparkline = (marketSparkline.length ? marketSparkline : historicalPrices)
         .filter((_, index) => index % 4 === 0)
         .slice(-42);
-      const tvl = chainAliases[asset.chain].reduce((sum, key) => sum + (tvlMap.get(key) ?? 0), 0);
+      const tvl = "tvlChain" in asset
+        ? chainAliases[asset.tvlChain].reduce((sum, key) => sum + (tvlMap.get(key) ?? 0), 0)
+        : 0;
       return {
         ...asset,
         price: currentPrice,

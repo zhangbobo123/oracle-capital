@@ -232,12 +232,27 @@ function loadSimulationAccount(): SimulationAccount {
   try {
     const parsed = JSON.parse(raw) as Partial<SimulationAccount> & { balance?: number };
     if (Array.isArray(parsed.positions)) {
+      const executedStrategies = Array.isArray(parsed.executedStrategies)
+        ? parsed.executedStrategies.map((strategy) => ({
+          ...strategy,
+          amount: Number(strategy.amount) || 0,
+          allocations: Array.isArray(strategy.allocations)
+            ? strategy.allocations.map((allocation) => ({
+              ...allocation,
+              amount: Number(allocation.amount) || 0,
+            }))
+            : [],
+        }))
+        : [];
+      const lastStrategy = parsed.lastStrategy
+        ? { ...parsed.lastStrategy, amount: Number(parsed.lastStrategy.amount) || 0 }
+        : undefined;
       return {
         positions: parsed.positions,
         transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
         snapshots: Array.isArray(parsed.snapshots) && parsed.snapshots.length ? parsed.snapshots : [{ value: parsed.positions.reduce((sum, item) => sum + item.value, 0), createdAt: Date.now() }],
-        executedStrategies: Array.isArray(parsed.executedStrategies) ? parsed.executedStrategies : [],
-        lastStrategy: parsed.lastStrategy,
+        executedStrategies,
+        lastStrategy,
       };
     }
     const migrated = defaultSimulationAccount();

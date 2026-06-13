@@ -60,6 +60,8 @@ type CommitteeDecision = {
   steps: string[];
   consensusRate: number;
   voteCounts: { approve: number; abstain: number; reject: number };
+  executedAt?: number;
+  executedAmount?: number;
 };
 
 type SavedConversation = {
@@ -185,6 +187,8 @@ type SimulationPosition = {
   value: number;
   costBasis: number;
   rationale: string;
+  sourceStrategy?: string;
+  sourceExecutedAt?: number;
 };
 
 type SimulationAccount = {
@@ -225,6 +229,52 @@ const defaultSimulationAccount = (): SimulationAccount => ({
 });
 
 const simulationTotal = (account: SimulationAccount) => account.positions.reduce((sum, position) => sum + position.value, 0);
+
+const traditionalAssetSymbols = new Set(["OUSG", "USDY", "PAXG", "XAUT", "SPYON"]);
+
+function inferAllocationSymbol(label: string) {
+  const normalized = label.toUpperCase();
+  if (/(SPYON|标普500|标普|SP500|S&P500)/.test(normalized)) return "SPYON";
+  if (/(PAXG|XAUT|黄金|GOLD)/.test(normalized)) return "PAXG";
+  if (/(OUSG|USDY|美债|国债|TREASURY|BOND)/.test(normalized)) return "OUSG";
+  return normalized.match(/\b[A-Z]{2,8}\b/)?.[0] ?? label.slice(0, 8).toUpperCase();
+}
+
+function traditionalAllocationPercentage(allocations: { label: string; percentage: number }[]) {
+  return allocations.reduce((sum, item) => {
+    const symbol = inferAllocationSymbol(item.label);
+    const isTraditional = traditionalAssetSymbols.has(symbol) || /传统资产|TRADITIONAL/.test(item.label.toUpperCase());
+    return sum + (isTraditional ? item.percentage : 0);
+  }, 0);
+}
+
+function riskLevelByTraditionalAssets(
+  allocations: { label: string; percentage: number }[],
+): CommitteeDecision["riskLevel"] {
+  const percentage = traditionalAllocationPercentage(allocations);
+  if (percentage > 50) return "稳健";
+  if (percentage >= 20) return "均衡";
+  return "进取";
+}
+
+function simulationPositionFromAllocation(
+  allocation: { label: string; rationale: string; amount: number },
+): Omit<SimulationPosition, "id" | "value" | "costBasis"> {
+  const normalized = allocation.label.toUpperCase();
+  const stable = /USDC|USDT|现金|机动|稳定/.test(normalized);
+  const chain: SimulationPosition["chain"] = /SOL|SOLANA/.test(normalized)
+    ? "Solana"
+    : /BNB|BSC/.test(normalized)
+      ? "BNB Chain"
+      : "Ethereum";
+  const symbol = stable ? "USDC" : inferAllocationSymbol(allocation.label);
+  return {
+    label: stable ? "USD Coin" : allocation.label,
+    symbol,
+    chain: stable ? "Ethereum" : chain,
+    rationale: allocation.rationale,
+  };
+}
 
 function loadSimulationAccount(): SimulationAccount {
   const raw = window.localStorage.getItem("oracle-capital-simulation");
@@ -596,7 +646,7 @@ export default function Home() {
           onOpenConversation={openSavedConversation}
         />
       )}
-      {view === "chat" && <ChatView masters={masters} selectedMasters={selectedMasters} initialQuestion={question} initialConversationId={conversationToOpen} onRestoreMasters={setSelected} onBack={() => setView("home")} wallet={wallet} onNeedWallet={() => setWalletOpen(true)} customApi={customApi} notify={setToast} />}
+      {view === "chat" && <ChatView masters={masters} selectedMasters={selectedMasters} initialQuestion={question} initialConversationId={conversationToOpen} onRestoreMasters={setSelected} onBack={() => setView("home")} onOpenSimulation={() => setView("profile")} wallet={wallet} onNeedWallet={() => setWalletOpen(true)} customApi={customApi} notify={setToast} />}
       {view === "profile" && <ProfileView wallet={wallet} coboConfig={coboConfig} onNeedWallet={() => setWalletOpen(true)} notify={setToast} />}
       {walletOpen && <WalletModal connected={wallet} onClose={() => setWalletOpen(false)} onConnect={(value, nextCoboConfig) => { setWallet(value); setCoboConfig(nextCoboConfig ?? null); window.localStorage.setItem("oracle-capital-wallet", JSON.stringify(value)); setWalletOpen(false); setToast(`${value.label} 已连接`); }} onDisconnect={() => { setWallet(null); setCoboConfig(null); window.localStorage.removeItem("oracle-capital-wallet"); setWalletOpen(false); setToast("钱包已断开"); }} notify={setToast} />}
       {apiOpen && <DeveloperApiModal current={customApi} onClose={() => setApiOpen(false)} onSave={(config) => { setCustomApi(config); setApiOpen(false); setToast("开发者 API 已加密保存并启用"); }} onRemove={() => { setCustomApi(null); setApiOpen(false); setToast("已恢复平台默认 API"); }} />}
@@ -709,7 +759,7 @@ function HomeView({
                     </div>
                     <h3 className="mt-5 truncate font-serif text-lg">{conversation.title}</h3>
                     <p className="mt-2 text-[10px] text-[var(--muted)]">{conversationMasters.map((master) => master.name).join(" · ") || "投资委员会"}</p>
-                    <div className="mt-5 flex items-center justify-between border-t border-[var(--line)] pt-4 text-xs text-[var(--green)]"><span>{conversation.messages.length} 条消息{conversation.decision ? " · 已形成方案" : ""}</span><ArrowRight size={14} /></div>
+                    <div className="mt-5 flex items-center justify-between border-t border-[var(--line)] pt-4 text-xs text-[var(--green)]"><span>{conversation.messages.length} 条消息{conversation.decision ? conversation.decision.executedAt ? " · 已执行" : " · 已形成方案" : ""}</span><ArrowRight size={14} /></div>
                   </button>
                 );
               })}
@@ -998,6 +1048,7 @@ function ChatView({
   initialConversationId,
   onRestoreMasters,
   onBack,
+  onOpenSimulation,
   wallet,
   onNeedWallet,
   customApi,
@@ -1009,6 +1060,7 @@ function ChatView({
   initialConversationId: string;
   onRestoreMasters: (masterIds: string[]) => void;
   onBack: () => void;
+  onOpenSimulation: () => void;
   wallet: ConnectedWallet | null;
   onNeedWallet: () => void;
   customApi: CustomApiConfig | null;
@@ -1023,6 +1075,7 @@ function ChatView({
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
   const [decision, setDecision] = useState<CommitteeDecision | null>(null);
+  const [executionPromptOpen, setExecutionPromptOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     { id: "welcome", role: "system", content: "投资委员会已就席。发送问题后，所选大师会从不同框架给出意见，再形成综合方案。" },
   ]);
@@ -1089,6 +1142,7 @@ function ChatView({
     setShowPlan(false);
     setPreview(false);
     setDecision(null);
+    setExecutionPromptOpen(false);
     setInput("");
   };
 
@@ -1099,6 +1153,7 @@ function ChatView({
     setDecision(conversation.decision ?? null);
     setShowPlan(Boolean(conversation.decision));
     setPreview(false);
+    setExecutionPromptOpen(false);
     notify(`已恢复：${conversation.title}`);
   };
 
@@ -1112,6 +1167,7 @@ function ChatView({
     setShowPlan(false);
     setPreview(false);
     setDecision(null);
+    setExecutionPromptOpen(false);
 
     try {
       const discussionInput = {
@@ -1148,7 +1204,7 @@ function ChatView({
           title: data.proposal.title,
           thesis: data.proposal.thesis,
           allocations: data.proposal.allocations,
-          riskLevel: data.proposal.riskLevel,
+          riskLevel: riskLevelByTraditionalAssets(data.proposal.allocations),
           expectedReturn: data.proposal.expectedReturn,
           maxDrawdown: data.proposal.maxDrawdown,
           dissent: data.proposal.dissent,
@@ -1180,7 +1236,10 @@ function ChatView({
           { label: "机动资金", percentage: 70, rationale: "等待更清晰的价格与风险信号" },
           { label: "小额观察仓", percentage: 30, rationale: "仅用于验证假设，不使用杠杆" },
         ],
-        riskLevel: "均衡",
+        riskLevel: riskLevelByTraditionalAssets([
+          { label: "机动资金", percentage: 70 },
+          { label: "小额观察仓", percentage: 30 },
+        ]),
         expectedReturn: "不适用",
         maxDrawdown: "控制在可承受范围内",
         dissent: "AI 服务降级，委员会未完成正式投票。",
@@ -1266,14 +1325,37 @@ function ChatView({
               <div className="mt-4 grid gap-3 text-xs sm:grid-cols-3"><div><span className="text-[var(--muted)]">风险等级</span><strong className="mt-1 block">{decision.riskLevel}</strong></div><div><span className="text-[var(--muted)]">收益判断</span><strong className="mt-1 block">{decision.expectedReturn}</strong></div><div><span className="text-[var(--muted)]">压力回撤</span><strong className="mt-1 block">{decision.maxDrawdown}</strong></div></div>
               <div className="mt-5"><div className="section-label"><ShieldCheck size={14} /> 执行步骤</div><ol className="mt-3 space-y-2">{decision.steps.map((step, index) => <li key={`${step}-${index}`} className="flex gap-3 text-xs leading-5"><span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[var(--wash)] font-serif">{index + 1}</span><span>{step}</span></li>)}</ol></div>
               <div className="mt-6 flex flex-col gap-2 sm:flex-row">
-                <button className="primary-btn flex-1" onClick={() => setPreview(true)}><CircleDollarSign size={16} /> 预览模拟执行</button>
+                <button className="primary-btn flex-1" onClick={() => setPreview(true)} disabled={Boolean(decision.executedAt)}>
+                  <CircleDollarSign size={16} /> {decision.executedAt ? "方案已执行" : "预览模拟执行"}
+                </button>
                 <button onClick={() => setEditing(!editing)} className="secondary-btn flex-1">{editing ? "收起投票说明" : "查看投票机制"}</button>
               </div>
+              {decision.executedAt && (
+                <p className="mt-3 rounded-lg border border-[var(--line)] p-3 text-[10px] leading-5 text-[var(--muted)]">
+                  该方案已在 {new Date(decision.executedAt).toLocaleString("zh-CN")} 执行，
+                  执行金额 ${decision.executedAmount?.toLocaleString("en-US", { maximumFractionDigits: 2 }) ?? "—"}，
+                  不可重复确认执行。
+                </p>
+              )}
               {editing && <p className="mt-3 rounded-lg border border-[var(--line)] p-3 text-[10px] leading-5 text-[var(--muted)]">共识率计算：赞成票计 1，保留票计 0.5，反对票计 0，再除以参与投票的大师人数。彩蛋只改变角色台词，不影响投票和最终方案。</p>}
             </div>
           )}
 
-          {preview && decision && <TradePreview decision={decision} wallet={wallet} onNeedWallet={onNeedWallet} notify={notify} onBack={() => setPreview(false)} />}
+          {preview && decision && <TradePreview decision={decision} wallet={wallet} onNeedWallet={onNeedWallet} notify={notify} onBack={() => setPreview(false)} onExecuted={(executedAt, executedAmount) => { setDecision((current) => current ? { ...current, executedAt, executedAmount } : current); setPreview(false); setExecutionPromptOpen(true); }} />}
+          {executionPromptOpen && (
+            <div className="fixed inset-0 z-[90] grid place-items-center bg-black/45 p-4 backdrop-blur-sm">
+              <button className="absolute inset-0 cursor-default" aria-label="关闭执行提示" onClick={() => setExecutionPromptOpen(false)} />
+              <div className="relative z-10 w-full max-w-md rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-6">
+                <div className="section-label"><ShieldCheck size={14} /> 执行完成</div>
+                <h3 className="mt-3 font-serif text-2xl">方案已执行到模拟盘</h3>
+                <p className="mt-3 text-sm text-[var(--muted)]">你可以立即跳转到个人中心的模拟盘查看持仓与流水更新。</p>
+                <div className="mt-6 flex gap-2">
+                  <button className="secondary-btn flex-1" onClick={() => setExecutionPromptOpen(false)}>稍后查看</button>
+                  <button className="primary-btn flex-1" onClick={() => { setExecutionPromptOpen(false); onOpenSimulation(); }}>去模拟盘查看</button>
+                </div>
+              </div>
+            </div>
+          )}
           {paused && <div className="rounded-lg border border-[var(--gold)]/40 bg-[var(--gold)]/5 p-4 text-center text-xs">委员会已暂停。你可以修改议题，或从当前上下文继续。</div>}
         </div>
 
@@ -1290,7 +1372,21 @@ function ChatView({
   );
 }
 
-function TradePreview({ onBack, decision, wallet, onNeedWallet, notify }: { onBack: () => void; decision: CommitteeDecision; wallet: ConnectedWallet | null; onNeedWallet: () => void; notify: (message: string) => void }) {
+function TradePreview({
+  onBack,
+  decision,
+  wallet,
+  onNeedWallet,
+  notify,
+  onExecuted,
+}: {
+  onBack: () => void;
+  decision: CommitteeDecision;
+  wallet: ConnectedWallet | null;
+  onNeedWallet: () => void;
+  notify: (message: string) => void;
+  onExecuted: (executedAt: number, executedAmount: number) => void;
+}) {
   const [accepted, setAccepted] = useState(false);
   const [status, setStatus] = useState<"ready" | "signing" | "done">("ready");
   const [amount, setAmount] = useState("");
@@ -1313,6 +1409,10 @@ function TradePreview({ onBack, decision, wallet, onNeedWallet, notify }: { onBa
   }, []);
 
   const execute = () => {
+    if (decision.executedAt) {
+      notify("该方案已执行，不能重复确认");
+      return;
+    }
     const investAmount = Number(amount);
     if (!Number.isFinite(investAmount) || investAmount <= 0) {
       notify("请输入有效投资金额");
@@ -1321,8 +1421,11 @@ function TradePreview({ onBack, decision, wallet, onNeedWallet, notify }: { onBa
     setStatus("signing");
     window.setTimeout(() => {
       const current = loadSimulationAccount();
-      const positions = current.positions.map((position) => ({ ...position }));
-      const usdc = positions.find((position) => position.symbol === "USDC" && position.chain === "Ethereum");
+      const positionMap = new Map<string, SimulationPosition>(
+        current.positions.map((position) => [`${position.chain}:${position.symbol}`, { ...position }]),
+      );
+      const usdcKey = "Ethereum:USDC";
+      const usdc = positionMap.get(usdcKey);
       if (!usdc || usdc.value < investAmount) {
         setStatus("ready");
         notify("Ethereum USDC 可用余额不足");
@@ -1334,7 +1437,33 @@ function TradePreview({ onBack, decision, wallet, onNeedWallet, notify }: { onBa
         ...item,
         amount: investAmount * item.percentage / 100,
       }));
-      const nextPositions = positions.filter((position) => position.value > 0.0001);
+      for (const allocation of executedAllocations) {
+        const seed = simulationPositionFromAllocation(allocation);
+        const key = `${seed.chain}:${seed.symbol}`;
+        const existing = positionMap.get(key);
+        if (existing) {
+          existing.value += allocation.amount;
+          existing.costBasis += allocation.amount;
+          existing.sourceStrategy = decision.title;
+          existing.sourceExecutedAt = Date.now();
+          if (existing.rationale !== allocation.rationale && existing.rationale.length < 180) {
+            existing.rationale = `${existing.rationale}；${allocation.rationale}`;
+          }
+        } else {
+          positionMap.set(key, {
+            id: `${seed.chain}-${seed.symbol}-${crypto.randomUUID()}`,
+            label: seed.label,
+            symbol: seed.symbol,
+            chain: seed.chain,
+            value: allocation.amount,
+            costBasis: allocation.amount,
+            rationale: allocation.rationale,
+            sourceStrategy: decision.title,
+            sourceExecutedAt: Date.now(),
+          });
+        }
+      }
+      const nextPositions = [...positionMap.values()].filter((position) => position.value > 0.0001);
       const next: SimulationAccount = {
         positions: nextPositions,
         transactions: [{
@@ -1365,6 +1494,7 @@ function TradePreview({ onBack, decision, wallet, onNeedWallet, notify }: { onBa
       };
       saveSimulationAccount(next);
       setStatus("done");
+      onExecuted(Date.now(), investAmount);
       notify("模拟方案已写入个人中心持仓");
     }, 1200);
   };
@@ -1390,9 +1520,9 @@ function TradePreview({ onBack, decision, wallet, onNeedWallet, notify }: { onBa
       <label className="mt-5 flex items-start gap-3 rounded-lg bg-[var(--panel-soft)] p-3 text-xs leading-5">
         <input checked={accepted} onChange={(event) => setAccepted(event.target.checked)} type="checkbox" className="mt-1 accent-[var(--green)]" /> 我已阅读风险摘要，并理解这是黑客松模拟交易，不会广播到链上。
       </label>
-      <button disabled={!accepted || status !== "ready"} onClick={execute} className="primary-btn mt-5 w-full">
+      <button disabled={!accepted || status !== "ready" || Boolean(decision.executedAt)} onClick={execute} className="primary-btn mt-5 w-full">
         {status === "signing" ? <LoaderCircle className="animate-spin" size={16} /> : <CircleDollarSign size={16} />}
-        {status === "signing" ? "正在更新模拟持仓..." : status === "done" ? "已同步到个人中心" : "确认模拟执行"}
+        {status === "signing" ? "正在更新模拟持仓..." : status === "done" ? "已同步到个人中心" : decision.executedAt ? "该方案已执行" : "确认模拟执行"}
       </button>
       {!wallet && <button onClick={onNeedWallet} className="mt-3 w-full text-center text-[10px] text-[var(--muted)] hover:text-[var(--ink)]">可选：连接钱包查看真实资产</button>}
     </div>
@@ -1701,7 +1831,7 @@ function ProfileView({
       </div>
       <div className="mt-4 stat-card">
         <div className="flex items-center justify-between"><div><h2 className="font-serif text-xl">模拟持仓明细</h2><p className="mt-1 text-[10px] text-[var(--muted)]">AI 方案执行后自动更新</p></div><span className="rounded-full bg-[var(--wash)] px-3 py-1 text-[10px]">{account.positions.length} 项资产</span></div>
-        <div className="mt-5 overflow-x-auto"><div className="min-w-[620px]"><div className="grid grid-cols-[1.3fr_.8fr_.8fr_.8fr_1.4fr] border-b border-[var(--line)] pb-3 text-[10px] text-[var(--muted)]"><span>资产</span><span>网络</span><span>价值</span><span>占比</span><span>配置逻辑</span></div>{[...account.positions].sort((a, b) => b.value - a.value).map((position) => <div key={position.id} className="grid grid-cols-[1.3fr_.8fr_.8fr_.8fr_1.4fr] items-center border-b border-[var(--line)] py-4 text-xs last:border-0"><div><strong>{position.symbol}</strong><span className="mt-1 block text-[10px] text-[var(--muted)]">{position.label}</span></div><span>{position.chain}</span><span>${position.value.toLocaleString("en-US", { maximumFractionDigits: 2 })}</span><span>{totalValue ? (position.value / totalValue * 100).toFixed(1) : "0.0"}%</span><span className="truncate text-[10px] text-[var(--muted)]">{position.rationale}</span></div>)}</div></div>
+        <div className="mt-5 overflow-x-auto"><div className="min-w-[760px]"><div className="grid grid-cols-[1.3fr_.8fr_.8fr_.8fr_1.1fr_1.3fr] border-b border-[var(--line)] pb-3 text-[10px] text-[var(--muted)]"><span>资产</span><span>网络</span><span>价值</span><span>占比</span><span>来源策略</span><span>配置逻辑</span></div>{[...account.positions].sort((a, b) => b.value - a.value).map((position) => <div key={position.id} className="grid grid-cols-[1.3fr_.8fr_.8fr_.8fr_1.1fr_1.3fr] items-center border-b border-[var(--line)] py-4 text-xs last:border-0"><div><strong>{position.symbol}</strong><span className="mt-1 block text-[10px] text-[var(--muted)]">{position.label}</span></div><span>{position.chain}</span><span>${position.value.toLocaleString("en-US", { maximumFractionDigits: 2 })}</span><span>{totalValue ? (position.value / totalValue * 100).toFixed(1) : "0.0"}%</span><span className="truncate text-[10px] text-[var(--muted)]">{position.sourceStrategy ? `${position.sourceStrategy}${position.sourceExecutedAt ? ` · ${new Date(position.sourceExecutedAt).toLocaleDateString("zh-CN")}` : ""}` : "初始资金"}</span><span className="truncate text-[10px] text-[var(--muted)]">{position.rationale}</span></div>)}</div></div>
       </div>
       <div className="mt-4 stat-card">
         <div className="flex items-center justify-between"><h2 className="font-serif text-xl">模拟资金流水</h2><button onClick={() => setShowAll(!showAll)} className="text-xs text-[var(--green)]">{showAll ? "收起" : "查看全部"}</button></div>

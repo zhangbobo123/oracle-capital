@@ -74,7 +74,24 @@ type SavedConversation = {
 type ConnectedWallet = {
   label: string;
   address: string;
-  kind: "evm" | "solana";
+  kind: "evm" | "solana" | "cobo";
+  configPath?: string;
+  endpoint?: string;
+};
+
+type CoboRuntimeConfig = {
+  name?: string;
+  baseUrl: string;
+  apiKey?: string;
+  walletId?: string;
+  timeoutMs?: number;
+  headers?: Record<string, string>;
+  endpoints?: {
+    connect?: { path: string; method?: "GET" | "POST" };
+    balance?: { path: string; method?: "GET" | "POST" };
+    authorize?: { path: string; method?: "GET" | "POST" };
+    execute?: { path: string; method?: "GET" | "POST" };
+  };
 };
 
 type CustomApiConfig = {
@@ -381,6 +398,7 @@ export default function Home() {
   const [apiOpen, setApiOpen] = useState(false);
   const [customApi, setCustomApi] = useState<CustomApiConfig | null>(null);
   const [wallet, setWallet] = useState<ConnectedWallet | null>(null);
+  const [coboConfig, setCoboConfig] = useState<CoboRuntimeConfig | null>(null);
   const [question, setQuestion] = useState("");
   const [conversationToOpen, setConversationToOpen] = useState("");
   const [savedConversations, setSavedConversations] = useState<SavedConversation[]>([]);
@@ -462,7 +480,11 @@ export default function Home() {
       }
       if (saved) {
         try {
-          setWallet(JSON.parse(saved) as ConnectedWallet);
+          const parsed = JSON.parse(saved) as ConnectedWallet;
+          setWallet(parsed);
+          if (parsed.kind === "cobo") {
+            setToast("为保护密钥，Cobo 连接参数不会持久化。请重新连接一次 Cobo Agent。");
+          }
         } catch {
           window.localStorage.removeItem("oracle-capital-wallet");
         }
@@ -575,8 +597,8 @@ export default function Home() {
         />
       )}
       {view === "chat" && <ChatView masters={masters} selectedMasters={selectedMasters} initialQuestion={question} initialConversationId={conversationToOpen} onRestoreMasters={setSelected} onBack={() => setView("home")} wallet={wallet} onNeedWallet={() => setWalletOpen(true)} customApi={customApi} notify={setToast} />}
-      {view === "profile" && <ProfileView wallet={wallet} onNeedWallet={() => setWalletOpen(true)} notify={setToast} />}
-      {walletOpen && <WalletModal connected={wallet} onClose={() => setWalletOpen(false)} onConnect={(value) => { setWallet(value); window.localStorage.setItem("oracle-capital-wallet", JSON.stringify(value)); setWalletOpen(false); setToast(`${value.label} 已连接`); }} onDisconnect={() => { setWallet(null); window.localStorage.removeItem("oracle-capital-wallet"); setWalletOpen(false); setToast("钱包已断开"); }} notify={setToast} />}
+      {view === "profile" && <ProfileView wallet={wallet} coboConfig={coboConfig} onNeedWallet={() => setWalletOpen(true)} notify={setToast} />}
+      {walletOpen && <WalletModal connected={wallet} onClose={() => setWalletOpen(false)} onConnect={(value, nextCoboConfig) => { setWallet(value); setCoboConfig(nextCoboConfig ?? null); window.localStorage.setItem("oracle-capital-wallet", JSON.stringify(value)); setWalletOpen(false); setToast(`${value.label} 已连接`); }} onDisconnect={() => { setWallet(null); setCoboConfig(null); window.localStorage.removeItem("oracle-capital-wallet"); setWalletOpen(false); setToast("钱包已断开"); }} notify={setToast} />}
       {apiOpen && <DeveloperApiModal current={customApi} onClose={() => setApiOpen(false)} onSave={(config) => { setCustomApi(config); setApiOpen(false); setToast("开发者 API 已加密保存并启用"); }} onRemove={() => { setCustomApi(null); setApiOpen(false); setToast("已恢复平台默认 API"); }} />}
       {toast && <div className="fixed bottom-5 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-[var(--ink)] px-5 py-3 text-xs text-[var(--bg)] shadow-xl">{toast}</div>}
     </main>
@@ -1300,7 +1322,7 @@ function TradePreview({ onBack, decision, wallet, onNeedWallet, notify }: { onBa
     window.setTimeout(() => {
       const current = loadSimulationAccount();
       const positions = current.positions.map((position) => ({ ...position }));
-      let usdc = positions.find((position) => position.symbol === "USDC" && position.chain === "Ethereum");
+      const usdc = positions.find((position) => position.symbol === "USDC" && position.chain === "Ethereum");
       if (!usdc || usdc.value < investAmount) {
         setStatus("ready");
         notify("Ethereum USDC 可用余额不足");
@@ -1383,7 +1405,17 @@ type WalletBalance = {
   balance: number;
 };
 
-function ProfileView({ wallet, onNeedWallet, notify }: { wallet: ConnectedWallet | null; onNeedWallet: () => void; notify: (message: string) => void }) {
+function ProfileView({
+  wallet,
+  coboConfig,
+  onNeedWallet,
+  notify,
+}: {
+  wallet: ConnectedWallet | null;
+  coboConfig: CoboRuntimeConfig | null;
+  onNeedWallet: () => void;
+  notify: (message: string) => void;
+}) {
   const [hidden, setHidden] = useState(true);
   const [showAll, setShowAll] = useState(false);
   const [mode, setMode] = useState<"simulation" | "wallet">("simulation");
@@ -1397,6 +1429,12 @@ function ProfileView({ wallet, onNeedWallet, notify }: { wallet: ConnectedWallet
   const [amount, setAmount] = useState("");
   const [walletBalances, setWalletBalances] = useState<WalletBalance[]>([]);
   const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [coboAction, setCoboAction] = useState("transfer");
+  const [coboPayloadText, setCoboPayloadText] = useState("{\n  \"symbol\": \"USDC\",\n  \"amount\": 100,\n  \"to\": \"0x...\"\n}");
+  const [coboRequestId, setCoboRequestId] = useState("");
+  const [coboAuthReady, setCoboAuthReady] = useState(false);
+  const [coboAuthorizing, setCoboAuthorizing] = useState(false);
+  const [coboExecuting, setCoboExecuting] = useState(false);
 
   useEffect(() => {
     const refresh = () => setAccount(loadSimulationAccount());
@@ -1505,7 +1543,14 @@ function ProfileView({ wallet, onNeedWallet, notify }: { wallet: ConnectedWallet
     }
     setPortfolioLoading(true);
     try {
-      const response = await fetch(`/api/portfolio?kind=${wallet.kind}&address=${encodeURIComponent(wallet.address)}`, { cache: "no-store" });
+      const response = wallet.kind === "cobo"
+        ? await fetch("/api/cobo/balance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(coboConfig ? { config: coboConfig } : { configPath: wallet.configPath }),
+          cache: "no-store",
+        })
+        : await fetch(`/api/portfolio?kind=${wallet.kind}&address=${encodeURIComponent(wallet.address)}`, { cache: "no-store" });
       if (!response.ok) throw new Error("Portfolio API failed");
       const data = await response.json() as { balances: WalletBalance[] };
       setWalletBalances(data.balances);
@@ -1522,7 +1567,66 @@ function ProfileView({ wallet, onNeedWallet, notify }: { wallet: ConnectedWallet
     return () => window.clearTimeout(timer);
     // Wallet identity is sufficient to trigger a refresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, wallet?.address]);
+  }, [mode, wallet?.address, wallet?.configPath, coboConfig]);
+
+  const authorizeCobo = async () => {
+    if (!wallet || wallet.kind !== "cobo" || (!coboConfig && !wallet.configPath)) {
+      notify("请先连接 Cobo Agent");
+      return;
+    }
+    setCoboAuthorizing(true);
+    try {
+      const payload = JSON.parse(coboPayloadText) as Record<string, unknown>;
+      const response = await fetch("/api/cobo/authorize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(coboConfig ? { config: coboConfig } : { configPath: wallet.configPath }),
+          operation: { action: coboAction, ...payload },
+        }),
+      });
+      if (!response.ok) throw new Error("Authorize API failed");
+      const data = await response.json() as { authorized: boolean; requestId?: string; message?: string };
+      if (!data.authorized) throw new Error(data.message || "Authorization rejected");
+      setCoboRequestId(data.requestId ?? "");
+      setCoboAuthReady(true);
+      notify(data.message || "Cobo 授权已确认，可执行操作");
+    } catch {
+      setCoboAuthReady(false);
+      notify("Cobo 授权失败，请检查配置路径和操作参数");
+    } finally {
+      setCoboAuthorizing(false);
+    }
+  };
+
+  const executeCobo = async () => {
+    if (!wallet || wallet.kind !== "cobo" || (!coboConfig && !wallet.configPath)) {
+      notify("请先连接 Cobo Agent");
+      return;
+    }
+    setCoboExecuting(true);
+    try {
+      const payload = JSON.parse(coboPayloadText) as Record<string, unknown>;
+      const response = await fetch("/api/cobo/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(coboConfig ? { config: coboConfig } : { configPath: wallet.configPath }),
+          requestId: coboRequestId || undefined,
+          operation: { action: coboAction, ...payload },
+        }),
+      });
+      if (!response.ok) throw new Error("Execute API failed");
+      const data = await response.json() as { message?: string; txId?: string };
+      notify(data.txId ? `Cobo 操作已执行：${data.txId}` : (data.message || "Cobo 操作执行成功"));
+      setCoboAuthReady(false);
+      await loadPortfolio();
+    } catch {
+      notify("Cobo 操作执行失败，请确认授权状态和参数");
+    } finally {
+      setCoboExecuting(false);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-[1100px] px-5 py-12 lg:px-10">
@@ -1603,9 +1707,31 @@ function ProfileView({ wallet, onNeedWallet, notify }: { wallet: ConnectedWallet
       </div>
       </> : <>
         <div className="mt-8 plan-card">
-          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><div className="section-label">真实链上钱包</div><h2 className="mt-2 font-serif text-2xl">{wallet ? `${wallet.label} ${shortAddress(wallet.address)}` : "尚未连接钱包"}</h2></div>{wallet ? <button onClick={() => void loadPortfolio()} disabled={portfolioLoading} className="secondary-btn"><RefreshCw className={portfolioLoading ? "animate-spin" : ""} size={15} />刷新余额</button> : <button onClick={onNeedWallet} className="primary-btn"><Wallet size={15} />连接钱包</button>}</div>
-          {wallet && <div className="mt-6 grid gap-3 md:grid-cols-2">{walletBalances.length ? walletBalances.map((balance) => <div key={balance.chain} className="rounded-xl bg-[var(--panel-soft)] p-4"><div className="text-xs text-[var(--muted)]">{balance.chain}</div><div className={`mt-2 font-mono text-2xl ${hidden ? "blur-md select-none" : ""}`}>{balance.balance.toLocaleString("en-US", { maximumFractionDigits: 6 })} {balance.symbol}</div></div>) : <div className="text-sm text-[var(--muted)]">{portfolioLoading ? "正在读取链上余额..." : "点击刷新读取余额"}</div>}</div>}
+          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><div className="section-label">真实链上钱包</div><h2 className="mt-2 font-serif text-2xl">{wallet ? `${wallet.label} ${shortAddress(wallet.address)}` : "尚未连接钱包"}</h2><p className="mt-2 text-[10px] text-[var(--muted)]">{wallet?.kind === "cobo" ? `Hermes Agent: ${coboConfig?.baseUrl ?? wallet.endpoint ?? "未记录"}` : "浏览器插件钱包模式"}</p></div>{wallet ? <button onClick={() => void loadPortfolio()} disabled={portfolioLoading} className="secondary-btn"><RefreshCw className={portfolioLoading ? "animate-spin" : ""} size={15} />刷新余额</button> : <button onClick={onNeedWallet} className="primary-btn"><Wallet size={15} />连接钱包</button>}</div>
+          {wallet && <div className="mt-6 grid gap-3 md:grid-cols-2">{walletBalances.length ? walletBalances.map((balance) => <div key={`${balance.chain}-${balance.symbol}`} className="rounded-xl bg-[var(--panel-soft)] p-4"><div className="text-xs text-[var(--muted)]">{balance.chain}</div><div className={`mt-2 font-mono text-2xl ${hidden ? "blur-md select-none" : ""}`}>{balance.balance.toLocaleString("en-US", { maximumFractionDigits: 6 })} {balance.symbol}</div></div>) : <div className="text-sm text-[var(--muted)]">{portfolioLoading ? "正在读取链上余额..." : "点击刷新读取余额"}</div>}</div>}
         </div>
+        {wallet?.kind === "cobo" && (
+          <div className="mt-4 plan-card">
+            <div className="section-label">COBO AGENT OPERATION</div>
+            <h3 className="mt-2 font-serif text-2xl">授权与执行</h3>
+            <p className="mt-2 text-xs text-[var(--muted)]">先请求授权，再确认执行。操作将通过后端代理发送到 Hermes 上的 Cobo Agent。</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-[.7fr_1.3fr]">
+              <input value={coboAction} onChange={(event) => setCoboAction(event.target.value)} placeholder="operation action，例如 transfer" className="rounded-xl border border-[var(--line)] bg-transparent px-4 py-3 text-sm outline-none focus:border-[var(--green)]" />
+              <textarea value={coboPayloadText} onChange={(event) => setCoboPayloadText(event.target.value)} rows={5} className="rounded-xl border border-[var(--line)] bg-transparent px-4 py-3 font-mono text-xs outline-none focus:border-[var(--green)]" />
+            </div>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <button onClick={() => void authorizeCobo()} disabled={coboAuthorizing || coboExecuting} className="secondary-btn flex-1">
+                {coboAuthorizing ? <LoaderCircle className="animate-spin" size={15} /> : <ShieldCheck size={15} />}
+                {coboAuthorizing ? "授权中..." : "1) 请求授权"}
+              </button>
+              <button onClick={() => void executeCobo()} disabled={!coboAuthReady || coboExecuting} className="primary-btn flex-1">
+                {coboExecuting ? <LoaderCircle className="animate-spin" size={15} /> : <CircleDollarSign size={15} />}
+                {coboExecuting ? "执行中..." : "2) 确认授权并执行"}
+              </button>
+            </div>
+            <p className="mt-2 text-[10px] text-[var(--muted)]">{coboAuthReady ? `已完成授权${coboRequestId ? `，请求号：${coboRequestId}` : ""}` : "尚未授权。请先完成第 1 步。"}</p>
+          </div>
+        )}
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <div className="stat-card"><ArrowDownToLine className="text-[var(--gold)]" /><h3 className="mt-5 font-serif text-xl">真实充值</h3><p className="mt-2 text-xs leading-6 text-[var(--muted)]">{wallet ? `从交易所或其他钱包转账到：${shortAddress(wallet.address)}` : "连接钱包后显示你的链上收款地址。"}</p>{wallet && <button onClick={() => { void navigator.clipboard?.writeText(wallet.address); notify("收款地址已复制"); }} className="secondary-btn mt-5 w-full">复制收款地址</button>}</div>
           <div className="stat-card"><ArrowUpFromLine className="text-[var(--gold)]" /><h3 className="mt-5 font-serif text-xl">真实提现</h3><p className="mt-2 text-xs leading-6 text-[var(--muted)]">非托管模式下，资产始终在你的钱包里，可随时通过钱包发送。平台尚未部署可审计的收费金库，因此不会伪造收取 0.01% 手续费。</p><button onClick={() => notify("真实收费提现需要部署审计金库合约后启用")} className="secondary-btn mt-5 w-full">金库通道待启用</button></div>
@@ -1702,11 +1828,16 @@ function WalletModal({
 }: {
   connected: ConnectedWallet | null;
   onClose: () => void;
-  onConnect: (wallet: ConnectedWallet) => void;
+  onConnect: (wallet: ConnectedWallet, coboConfig?: CoboRuntimeConfig) => void;
   onDisconnect: () => void;
   notify: (message: string) => void;
 }) {
   const [connecting, setConnecting] = useState("");
+  const [coboBaseUrl, setCoboBaseUrl] = useState("http://127.0.0.1:8787");
+  const [coboApiKey, setCoboApiKey] = useState("");
+  const [coboWalletId, setCoboWalletId] = useState("");
+  const [coboPath, setCoboPath] = useState("");
+  const [coboError, setCoboError] = useState("");
   const connectEvm = async () => {
     if (!window.ethereum) {
       notify("未检测到 EVM 钱包，请安装 MetaMask 或兼容钱包");
@@ -1736,22 +1867,106 @@ function WalletModal({
       setConnecting("");
     }
   };
+  const connectCobo = async () => {
+    if (!coboBaseUrl.trim()) {
+      setCoboError("请填写 Hermes/Cobo Agent 地址");
+      return;
+    }
+    setCoboError("");
+    setConnecting("Cobo");
+    try {
+      const config: CoboRuntimeConfig = {
+        name: "Cobo Agent",
+        baseUrl: coboBaseUrl.trim(),
+        apiKey: coboApiKey.trim() || undefined,
+        walletId: coboWalletId.trim() || undefined,
+      };
+      const response = await fetch("/api/cobo/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config }),
+      });
+      const data = await response.json() as {
+        error?: string;
+        wallet?: { kind: "cobo"; label: string; address: string; endpoint: string };
+        message?: string;
+      };
+      if (!response.ok || !data.wallet) throw new Error(data.error || "Cobo connection failed");
+      onConnect(data.wallet, config);
+      setConnecting("");
+      notify(data.message || "Cobo Agent 已连接");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Cobo 连接失败";
+      setCoboError(message);
+      notify("Cobo 连接失败，请检查 Hermes 地址和配置参数");
+      setConnecting("");
+    }
+  };
+
+  const connectCoboByPath = async () => {
+    if (!coboPath.trim()) {
+      setCoboError("请输入 Cobo 配置文件路径");
+      return;
+    }
+    setCoboError("");
+    setConnecting("CoboPath");
+    try {
+      const response = await fetch("/api/cobo/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ configPath: coboPath.trim() }),
+      });
+      const data = await response.json() as {
+        error?: string;
+        wallet?: { kind: "cobo"; label: string; address: string; endpoint: string; configPath?: string };
+        message?: string;
+      };
+      if (!response.ok || !data.wallet) throw new Error(data.error || "Cobo connection failed");
+      onConnect(data.wallet);
+      setConnecting("");
+      notify(data.message || "Cobo Agent 已连接");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Cobo 连接失败";
+      setCoboError(message);
+      notify("Cobo 连接失败，请检查配置路径与 Hermes Agent");
+      setConnecting("");
+    }
+  };
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/45 p-4 backdrop-blur-sm" onMouseDown={onClose}>
       <div className="w-full max-w-md rounded-2xl bg-[var(--panel)] p-6 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between"><div><div className="section-label">钱包登录</div><h2 className="mt-2 font-serif text-2xl">{connected ? "钱包已连接" : "连接到追光者"}</h2></div><button onClick={onClose} className="icon-btn"><X size={17} /></button></div>
-        <p className="mt-3 text-xs leading-5 text-[var(--muted)]">连接仅用于读取公开地址。本站不会接触私钥，任何真实交易仍需在钱包中单独确认。</p>
+        <p className="mt-3 text-xs leading-5 text-[var(--muted)]">支持浏览器插件钱包和 Cobo Hermes Agent。真实执行前仍需明确授权确认。</p>
         {connected ? (
           <div className="mt-6">
-            <div className="rounded-xl bg-[var(--panel-soft)] p-4"><div className="text-xs text-[var(--muted)]">{connected.label}</div><div className="mt-2 font-mono text-sm">{shortAddress(connected.address)}</div></div>
+            <div className="rounded-xl bg-[var(--panel-soft)] p-4"><div className="text-xs text-[var(--muted)]">{connected.label}</div><div className="mt-2 font-mono text-sm">{shortAddress(connected.address)}</div>{connected.kind === "cobo" && connected.endpoint && <div className="mt-1 text-[10px] text-[var(--muted)]">{connected.endpoint}</div>}</div>
             <button onClick={onDisconnect} className="secondary-btn mt-4 w-full">断开钱包</button>
           </div>
         ) : <div className="mt-6 space-y-2">
           <button disabled={Boolean(connecting)} onClick={connectEvm} className="topic-row"><Wallet size={17} /><span className="flex-1 text-left">MetaMask / EVM 钱包</span>{connecting === "MetaMask" ? <LoaderCircle className="animate-spin" size={15} /> : <ArrowRight size={15} />}</button>
           <button disabled={Boolean(connecting)} onClick={connectPhantom} className="topic-row"><Wallet size={17} /><span className="flex-1 text-left">Phantom / Solana</span>{connecting === "Phantom" ? <LoaderCircle className="animate-spin" size={15} /> : <ArrowRight size={15} />}</button>
+          <div className="rounded-xl border border-[var(--line)] p-3">
+            <div className="text-[10px] font-semibold tracking-[0.15em] text-[var(--muted)]">COBO / HERMES AGENT</div>
+            <input value={coboBaseUrl} onChange={(event) => setCoboBaseUrl(event.target.value)} placeholder="Hermes Agent URL，例如 http://127.0.0.1:8787" className="mt-2 h-10 w-full rounded-lg border border-[var(--line)] bg-transparent px-3 text-xs outline-none focus:border-[var(--green)]" />
+            <input value={coboApiKey} onChange={(event) => setCoboApiKey(event.target.value)} placeholder="API Key（可选）" className="mt-2 h-10 w-full rounded-lg border border-[var(--line)] bg-transparent px-3 text-xs outline-none focus:border-[var(--green)]" />
+            <input value={coboWalletId} onChange={(event) => setCoboWalletId(event.target.value)} placeholder="Wallet ID（可选）" className="mt-2 h-10 w-full rounded-lg border border-[var(--line)] bg-transparent px-3 text-xs outline-none focus:border-[var(--green)]" />
+            {coboError && <p className="mt-2 text-[10px] text-red-500">{coboError}</p>}
+            <button disabled={Boolean(connecting)} onClick={() => void connectCobo()} className="secondary-btn mt-2 w-full">
+              {connecting === "Cobo" ? <LoaderCircle className="animate-spin" size={15} /> : <ShieldCheck size={15} />}
+              {connecting === "Cobo" ? "连接中..." : "填写信息并自动连接"}
+            </button>
+            <div className="mt-3 border-t border-[var(--line)] pt-3">
+              <div className="text-[10px] text-[var(--muted)]">高级：通过配置路径连接</div>
+              <input value={coboPath} onChange={(event) => setCoboPath(event.target.value)} placeholder="例如 D:\\Hermes\\cobo.json" className="mt-2 h-10 w-full rounded-lg border border-[var(--line)] bg-transparent px-3 text-xs outline-none focus:border-[var(--green)]" />
+              <button disabled={Boolean(connecting)} onClick={() => void connectCoboByPath()} className="secondary-btn mt-2 w-full">
+                {connecting === "CoboPath" ? <LoaderCircle className="animate-spin" size={15} /> : <ArrowRight size={15} />}
+                {connecting === "CoboPath" ? "连接中..." : "按路径连接"}
+              </button>
+            </div>
+          </div>
           <button onClick={() => notify("WalletConnect 需要项目 ID，下一阶段接入")} className="topic-row"><Wallet size={17} /><span className="flex-1 text-left">WalletConnect</span><ArrowRight size={15} /></button>
         </div>}
-        <div className="mt-5 flex items-start gap-2 text-[10px] leading-4 text-[var(--muted)]"><ShieldCheck size={14} className="mt-0.5 shrink-0" />连接请求由钱包扩展处理，追光者只保存公开地址。</div>
+        <div className="mt-5 flex items-start gap-2 text-[10px] leading-4 text-[var(--muted)]"><ShieldCheck size={14} className="mt-0.5 shrink-0" />黑客松演示模式：优先使用网页输入信息自动连接；密钥仅在当前会话内使用，不会写入配置文件。</div>
       </div>
     </div>
   );

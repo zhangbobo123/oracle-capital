@@ -92,9 +92,11 @@ function buildDemoProposal(opinions: MasterOpinion[], feedbackNotes?: string): C
     title: feedbackNotes ? "修订版委员会观察方案" : "委员会观察方案",
     thesis: "委员会认为当前问题可以讨论，但信息仍不足以支撑高置信度重仓。更适合先明确仓位边界、补齐关键数据，再决定是否进入正式执行。",
     allocations: normalizePercentages([
-      { label: "机动资金", percentage: 60, rationale: "保留灵活性，等待更清晰信号" },
-      { label: "观察仓", percentage: 25, rationale: "验证判断而非一次性押注" },
-      { label: "对冲或保护仓", percentage: 15, rationale: "为不确定性预留缓冲" },
+      { label: "BTC 核心仓", percentage: 28, rationale: "作为加密市场基准风险资产，承担核心方向仓位" },
+      { label: "ETH 核心仓", percentage: 24, rationale: "兼具主流资产与生态现金流属性，提升组合质量" },
+      { label: "SOL 卫星仓", percentage: 18, rationale: "补充高 Beta 公链弹性，捕捉阶段性超额收益" },
+      { label: "LINK / AAVE 主题仓", percentage: 18, rationale: "配置基础设施与 DeFi 代表资产，分散单一链风险" },
+      { label: "短期机会仓（ARB/INJ）", percentage: 12, rationale: "用于 7-30 天机会交易，严格仓位与止损" },
     ]),
     riskLevel: "均衡",
     expectedReturn: "不适用，需补充实时数据后再评估",
@@ -110,6 +112,71 @@ function buildDemoProposal(opinions: MasterOpinion[], feedbackNotes?: string): C
       "补充实时市场与协议数据",
       "根据修订后的委员会结论决定是否执行",
     ],
+  };
+}
+
+function extractSymbol(label: string) {
+  const normalized = label.toUpperCase();
+  if (/(BITCOIN|\bBTC\b)/.test(normalized)) return "BTC";
+  if (/(ETHEREUM|\bETH\b)/.test(normalized)) return "ETH";
+  if (/\bSOL\b/.test(normalized)) return "SOL";
+  if (/\bBNB\b/.test(normalized)) return "BNB";
+  if (/\bLINK\b/.test(normalized)) return "LINK";
+  if (/\bARB\b/.test(normalized)) return "ARB";
+  if (/\bAAVE\b/.test(normalized)) return "AAVE";
+  if (/\bINJ\b/.test(normalized)) return "INJ";
+  if (/\bRNDR\b/.test(normalized)) return "RNDR";
+  return normalized.match(/\b[A-Z]{2,8}\b/)?.[0] ?? "";
+}
+
+function diversifiedTemplate(riskLevel: CouncilProposal["riskLevel"]) {
+  if (riskLevel === "稳健") {
+    return normalizePercentages([
+      { label: "BTC 核心仓", percentage: 34, rationale: "核心配置，控制组合波动并保持市场 Beta" },
+      { label: "ETH 核心仓", percentage: 26, rationale: "生态龙头，兼顾成长与流动性" },
+      { label: "SOL 卫星仓", percentage: 14, rationale: "补充高弹性公链收益机会" },
+      { label: "BNB 卫星仓", percentage: 12, rationale: "补充交易与生态场景敞口，降低单链集中度" },
+      { label: "LINK / AAVE 主题仓", percentage: 8, rationale: "配置基础设施与 DeFi 赛道，增强风格分散" },
+      { label: "短期机会仓（ARB）", percentage: 6, rationale: "用于 7-30 天事件驱动机会，设置严格止损" },
+    ]);
+  }
+  if (riskLevel === "进取" || riskLevel === "高风险") {
+    return normalizePercentages([
+      { label: "BTC 核心仓", percentage: 18, rationale: "保留市场锚仓，避免纯高 Beta 暴露" },
+      { label: "ETH 核心仓", percentage: 17, rationale: "维持主流资产底仓并承接流动性" },
+      { label: "SOL 卫星仓", percentage: 20, rationale: "提升高弹性公链权重以争取超额收益" },
+      { label: "BNB 卫星仓", percentage: 15, rationale: "增加第二公链权重，分散单一链风险" },
+      { label: "AI 主题仓（INJ / RNDR）", percentage: 15, rationale: "捕捉 AI 叙事轮动机会，配合纪律止损" },
+      { label: "短期机会仓（ARB / LINK）", percentage: 15, rationale: "用于 7-30 天机会，快进快出并严控仓位" },
+    ]);
+  }
+  return normalizePercentages([
+    { label: "BTC 核心仓", percentage: 26, rationale: "作为市场锚，提供组合稳定性与流动性" },
+    { label: "ETH 核心仓", percentage: 22, rationale: "主流资产底仓，承接生态成长收益" },
+    { label: "SOL 卫星仓", percentage: 18, rationale: "提高组合弹性，参与高活跃公链轮动" },
+    { label: "BNB 卫星仓", percentage: 14, rationale: "补充不同链生态和交易场景暴露" },
+    { label: "LINK / AAVE 主题仓", percentage: 12, rationale: "配置基础设施与 DeFi，增强风格多样化" },
+    { label: "短期机会仓（ARB / INJ）", percentage: 8, rationale: "用于 7-30 天机会配置，附带严格止损" },
+  ]);
+}
+
+function enforceDiversity(proposal: CouncilProposal) {
+  const symbols = proposal.allocations.map((item) => extractSymbol(item.label)).filter(Boolean);
+  const unique = new Set(symbols);
+  const majorOnly = symbols.length > 0 && symbols.every((symbol) => symbol === "BTC" || symbol === "ETH");
+  const lackVariety = unique.size < 4 || majorOnly;
+  if (!lackVariety) return proposal;
+  const improved = diversifiedTemplate(proposal.riskLevel);
+  return {
+    ...proposal,
+    allocations: improved,
+    thesis: `${proposal.thesis} 为提升可执行性与收益来源分散，本轮已按 Core/Satellite/Tactical 结构扩展至多币种方案。`,
+    dissent: `${proposal.dissent} 另有成员提醒：多币种分散并不降低整体波动，仍需严格仓位与止损纪律。`,
+    executionSteps: [
+      ...proposal.executionSteps.slice(0, 2),
+      "按 Core/Satellite/Tactical 分三批建仓，优先核心仓，再执行短期机会仓。",
+      ...proposal.executionSteps.slice(2, 4),
+    ].slice(0, 5),
   };
 }
 
@@ -300,6 +367,7 @@ async function runCouncilDiscussion(request: DiscussionRequest): Promise<Discuss
       userConfirmationsRequired: (result.userConfirmationsRequired ?? []).filter(Boolean).slice(0, 5),
       executionSteps: (result.executionSteps ?? []).filter(Boolean).slice(0, 5),
     };
+    proposal = enforceDiversity(proposal);
   } catch (error) {
     console.error("Council synthesis fallback", error);
     proposal = buildDemoProposal(rebuttalOpinions, request.feedbackNotes);

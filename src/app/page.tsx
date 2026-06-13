@@ -1590,22 +1590,7 @@ function ProfileView({
   const investedValue = Math.max(0, totalValue - usdcValue);
   const stableRatio = totalValue ? usdcValue / totalValue * 100 : 0;
   const concentration = totalValue ? Math.max(...account.positions.map((position) => position.value / totalValue * 100), 0) : 0;
-  const chainAllocation = (["Ethereum", "BNB Chain", "Solana"] as const).map((chain) => ({
-    chain,
-    value: account.positions.filter((position) => position.chain === chain).reduce((sum, position) => sum + position.value, 0),
-  })).filter((item) => item.value > 0);
   const riskLabel = concentration > 70 && stableRatio < 40 ? "集中度偏高" : stableRatio >= 60 ? "防守型" : "均衡型";
-  const trendValues = account.snapshots.length
-    ? account.snapshots.slice(-12).map((snapshot) => snapshot.value)
-    : [totalValue];
-  const trendMin = Math.min(...trendValues, totalValue) * 0.995;
-  const trendMax = Math.max(...trendValues, totalValue) * 1.005;
-  const trendRange = Math.max(1, trendMax - trendMin);
-  const trendPoints = [...trendValues, totalValue].map((value, index, values) => {
-    const x = values.length === 1 ? 50 : index / (values.length - 1) * 100;
-    const y = 90 - (value - trendMin) / trendRange * 75;
-    return `${x},${y}`;
-  }).join(" ");
 
   const saveCashAction = (next: SimulationAccount) => {
     const total = simulationTotal(next);
@@ -1789,17 +1774,6 @@ function ProfileView({
         <button onClick={resetSimulation} className="stat-card flex items-center gap-4 text-left"><span className="grid h-12 w-12 place-items-center rounded-full bg-[var(--wash)]"><RefreshCw size={20} /></span><span><strong>一键恢复</strong><span className="mt-1 block text-xs text-[var(--muted)]">恢复初始资产：Ethereum USDC $10,000</span></span></button>
       </div>
       {cashAction && <div className="mt-4 plan-card"><div className="flex items-center justify-between"><div><div className="section-label">{cashAction === "deposit" ? "模拟充值" : "模拟提现"}</div><h2 className="mt-2 font-serif text-2xl">输入金额</h2></div><button onClick={() => setCashAction(null)} className="icon-btn"><X size={16} /></button></div><div className="mt-5 flex gap-2"><input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" placeholder="0.00 USD" className="min-w-0 flex-1 rounded-full border border-[var(--line)] bg-transparent px-5 text-sm outline-none" /><button onClick={submitCashAction} className="primary-btn">确认{cashAction === "deposit" ? "充值" : "提现"}</button></div>{cashAction === "withdraw" && <p className="mt-3 text-xs text-[var(--muted)]">预计手续费：${((Number(amount) || 0) * 0.0001).toFixed(4)}，到账金额：${Math.max(0, (Number(amount) || 0)).toFixed(2)}</p>}</div>}
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1.25fr_.75fr]">
-        <div className="stat-card">
-          <div className="flex items-center justify-between"><div><h2 className="font-serif text-xl">组合净值轨迹</h2><p className="mt-1 text-[10px] text-[var(--muted)]">充值、提现和策略执行节点</p></div><span className="text-xs text-[var(--muted)]">{account.snapshots.length} 个数据点</span></div>
-          <div className="mt-8 h-56 rounded-xl bg-[var(--panel-soft)] p-4"><svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full overflow-visible"><line x1="0" y1="90" x2="100" y2="90" stroke="var(--line)" strokeWidth="0.5" /><line x1="0" y1="52" x2="100" y2="52" stroke="var(--line)" strokeWidth="0.5" /><polyline points={trendPoints} fill="none" stroke="var(--green)" strokeWidth="2.2" vectorEffect="non-scaling-stroke" /></svg></div>
-        </div>
-        <div className="stat-card">
-          <h2 className="font-serif text-xl">链与风险分析</h2>
-          <div className="mt-6 space-y-5">{chainAllocation.map((item) => { const percentage = totalValue ? item.value / totalValue * 100 : 0; return <div key={item.chain}><div className="mb-2 flex justify-between text-xs"><span>{item.chain}</span><span>{percentage.toFixed(1)}%</span></div><div className="h-1.5 overflow-hidden rounded-full bg-[var(--wash)]"><div className="h-full bg-[var(--green)]" style={{ width: `${percentage}%` }} /></div></div>; })}</div>
-          <div className="mt-6 border-t border-[var(--line)] pt-5 text-xs leading-6"><div className="flex justify-between"><span className="text-[var(--muted)]">组合类型</span><strong>{riskLabel}</strong></div><div className="flex justify-between"><span className="text-[var(--muted)]">活跃网络</span><strong>{chainAllocation.length}</strong></div><div className="flex justify-between"><span className="text-[var(--muted)]">策略风险</span><strong>{account.lastStrategy?.riskLevel ?? "稳健"}</strong></div></div>
-        </div>
-      </div>
       <div className="mt-4 stat-card">
         <div className="flex items-center justify-between"><div><h2 className="font-serif text-xl">已执行方案</h2><p className="mt-1 text-[10px] text-[var(--muted)]">与模拟持仓分开展示，便于复盘</p></div><span className="rounded-full bg-[var(--wash)] px-3 py-1 text-[10px]">{account.executedStrategies.length} 次执行</span></div>
         <div className="mt-5 divide-y divide-[var(--line)]">

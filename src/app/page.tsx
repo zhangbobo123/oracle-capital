@@ -1837,7 +1837,7 @@ function WalletModal({
   notify: (message: string) => void;
 }) {
   const [connecting, setConnecting] = useState("");
-  const [coboBaseUrl, setCoboBaseUrl] = useState("http://127.0.0.1:8787");
+  const [coboBaseUrl, setCoboBaseUrl] = useState("https://api.agenticwallet.cobo.com");
   const [coboApiKey, setCoboApiKey] = useState("");
   const [coboWalletId, setCoboWalletId] = useState("");
   const [coboPath, setCoboPath] = useState("");
@@ -1952,8 +1952,8 @@ function WalletModal({
           <div className="rounded-xl border border-[var(--line)] p-3">
             <div className="text-[10px] font-semibold tracking-[0.15em] text-[var(--muted)]">COBO / HERMES AGENT</div>
             <input value={coboBaseUrl} onChange={(event) => setCoboBaseUrl(event.target.value)} placeholder="Hermes Agent URL，例如 http://127.0.0.1:8787" className="mt-2 h-10 w-full rounded-lg border border-[var(--line)] bg-transparent px-3 text-xs outline-none focus:border-[var(--green)]" />
-            <input value={coboApiKey} onChange={(event) => setCoboApiKey(event.target.value)} placeholder="API Key（可选）" className="mt-2 h-10 w-full rounded-lg border border-[var(--line)] bg-transparent px-3 text-xs outline-none focus:border-[var(--green)]" />
-            <input value={coboWalletId} onChange={(event) => setCoboWalletId(event.target.value)} placeholder="Wallet ID（可选）" className="mt-2 h-10 w-full rounded-lg border border-[var(--line)] bg-transparent px-3 text-xs outline-none focus:border-[var(--green)]" />
+            <input type="password" value={coboApiKey} onChange={(event) => setCoboApiKey(event.target.value)} placeholder="API Key" className="mt-2 h-10 w-full rounded-lg border border-[var(--line)] bg-transparent px-3 text-xs outline-none focus:border-[var(--green)]" />
+            <input value={coboWalletId} onChange={(event) => setCoboWalletId(event.target.value)} placeholder="Wallet ID" className="mt-2 h-10 w-full rounded-lg border border-[var(--line)] bg-transparent px-3 text-xs outline-none focus:border-[var(--green)]" />
             {coboError && <p className="mt-2 text-[10px] text-red-500">{coboError}</p>}
             <button disabled={Boolean(connecting)} onClick={() => void connectCobo()} className="secondary-btn mt-2 w-full">
               {connecting === "Cobo" ? <LoaderCircle className="animate-spin" size={15} /> : <ShieldCheck size={15} />}

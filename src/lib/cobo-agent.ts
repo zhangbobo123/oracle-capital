@@ -332,6 +332,24 @@ export async function executeCoboOperation(
         raw: payload,
       };
     }
+    if (action === "hermes_command" || action === "nl_command" || action === "execute_strategy") {
+      const payload = await callAgentRaw<Record<string, unknown>>(
+        config,
+        "POST",
+        "/execute",
+        {
+          walletId,
+          requestId,
+          operation,
+        },
+      );
+      return {
+        ok: payload.ok !== false && payload.success !== false,
+        txId: String(payload.txId ?? payload.request_id ?? payload.transaction_uuid ?? payload.hash ?? ""),
+        message: String(payload.message ?? "Hermes command submitted"),
+        raw: payload,
+      };
+    }
     throw new Error(`Unsupported action: ${action || "empty"}. Supported: transfer, contract_call, payment, message_sign`);
   }
   const descriptor = endpoint(config, "execute", { path: "/execute", method: "POST" });

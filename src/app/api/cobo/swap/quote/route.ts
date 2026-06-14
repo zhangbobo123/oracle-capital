@@ -62,6 +62,7 @@ export async function POST(request: NextRequest) {
       buySymbol?: string;
       amount?: string | number;
       slippageBps?: number;
+      quoteApiKey?: string;
     };
     const config = await resolveConfig(body);
     if (!config.walletId?.trim()) {
@@ -83,7 +84,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "amount must be greater than 0" }, { status: 400 });
     }
 
-    const addresses = await getCoboWalletAddresses(config);
+    let addresses: string[] = [];
+    try {
+      addresses = await getCoboWalletAddresses(config);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "unknown";
+      throw new Error(`Cobo 地址读取失败（可能是 Cobo API Key 或 walletId 无权限）：${reason}`);
+    }
     const taker = addresses[0];
     if (!taker) {
       return NextResponse.json({ error: "未读取到钱包地址，无法请求可执行报价" }, { status: 400 });
@@ -99,12 +106,20 @@ export async function POST(request: NextRequest) {
     quoteUrl.searchParams.set("slippageBps", String(slippageBps));
 
     const headers: Record<string, string> = { "0x-version": "v2" };
-    if (process.env.ZEROX_API_KEY) {
-      headers["0x-api-key"] = process.env.ZEROX_API_KEY;
+    const quoteApiKey = String(body.quoteApiKey ?? "").trim()
+      || config.headers?.["0x-api-key"]
+      || process.env.ZEROX_API_KEY
+      || "";
+    if (!quoteApiKey) {
+      throw new Error("No API key found in request。请填写 0x API Key 或配置 ZEROX_API_KEY");
     }
+    headers["0x-api-key"] = quoteApiKey;
     const quoteResp = await fetch(quoteUrl, { method: "GET", headers, cache: "no-store" });
     const quoteJson = await quoteResp.json().catch(() => ({})) as Record<string, unknown>;
     if (!quoteResp.ok) {
+      if (quoteResp.status === 401) {
+        throw new Error("0x Unauthorized：请确认填写的是 0x API Key（不是 Cobo API Key），且该 Key 已开通 Swap API 权限");
+      }
       const reason = String(quoteJson.validationErrors ?? quoteJson.reason ?? quoteJson.message ?? quoteJson.error ?? "0x quote failed");
       throw new Error(reason);
     }

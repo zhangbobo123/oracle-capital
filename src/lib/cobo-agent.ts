@@ -19,6 +19,7 @@ export type CoboAgentConfig = {
     balance?: EndpointDescriptor;
     authorize?: EndpointDescriptor;
     execute?: EndpointDescriptor;
+    txStatus?: EndpointDescriptor;
   };
 };
 
@@ -168,7 +169,7 @@ export function normalizeCoboConfig(input: CoboInput): CoboAgentConfig {
     endpoints: {},
   };
   const endpointMap = input.endpoints && typeof input.endpoints === "object" ? input.endpoints : {};
-  (["connect", "balance", "authorize", "execute"] as const).forEach((key) => {
+  (["connect", "balance", "authorize", "execute", "txStatus"] as const).forEach((key) => {
     const candidate = endpointMap[key] as Record<string, unknown> | undefined;
     if (!candidate) return;
     const path = typeof candidate.path === "string" ? candidate.path.trim() : "";
@@ -345,4 +346,39 @@ export async function executeCoboOperation(
     message: String(payload.message ?? "Operation executed"),
     raw: payload,
   };
+}
+
+export async function getCoboWalletAddresses(config: CoboAgentConfig) {
+  const walletId = requireWalletId(config);
+  const payload = await callAgentRaw<Record<string, unknown>>(
+    config,
+    "GET",
+    `/api/v1/wallets/${walletId}/addresses`,
+  );
+  const result = Array.isArray(payload.result) ? payload.result : [];
+  return result
+    .map((item) => {
+      if (!item || typeof item !== "object") return "";
+      const row = item as Record<string, unknown>;
+      return String(row.address ?? "").trim();
+    })
+    .filter(Boolean);
+}
+
+export async function getCoboTransactionByRequestId(config: CoboAgentConfig, requestId: string) {
+  const normalizedRequestId = requestId.trim();
+  if (!normalizedRequestId) {
+    throw new Error("requestId is required");
+  }
+  if (!hasCustomEndpoint(config, "txStatus")) {
+    const walletId = requireWalletId(config);
+    const payload = await callAgentRaw<Record<string, unknown>>(
+      config,
+      "GET",
+      `/api/v1/wallets/${walletId}/transactions/by-request-id/${encodeURIComponent(normalizedRequestId)}`,
+    );
+    return payload;
+  }
+  const descriptor = endpoint(config, "txStatus", { path: "/tx-status", method: "GET" });
+  return callAgent<Record<string, unknown>>(config, descriptor, { requestId: normalizedRequestId, walletId: config.walletId });
 }

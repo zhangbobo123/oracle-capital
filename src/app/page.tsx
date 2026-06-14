@@ -1615,6 +1615,24 @@ type RealTradeRecord = {
   updatedAt: number;
 };
 
+type CoboSwapQuote = {
+  chain: string;
+  taker: string;
+  slippageBps: number;
+  quoteSource: string;
+  sell: { symbol: string; amount: string; amountBaseUnits: string };
+  buy: { symbol: string; amount: string; amountBaseUnits: string };
+  allowanceTarget: string;
+  approveOperation: Record<string, unknown>;
+  swapOperation: Record<string, unknown>;
+};
+
+type CoboSwapExecution = {
+  ok: boolean;
+  approve?: { requestId?: string; txId?: string; message?: string };
+  swap: { requestId?: string; txId?: string; message?: string };
+};
+
 const portfolioChains: { id: PortfolioChain; label: string; symbol: string }[] = [
   { id: "ethereum", label: "Ethereum", symbol: "ETH" },
   { id: "bsc", label: "BNB Chain", symbol: "BNB" },
@@ -1684,6 +1702,15 @@ function ProfileView({
   const [coboAuthReady, setCoboAuthReady] = useState(false);
   const [coboAuthorizing, setCoboAuthorizing] = useState(false);
   const [coboExecuting, setCoboExecuting] = useState(false);
+  const [swapBuySymbol, setSwapBuySymbol] = useState<"BTC" | "ETH">("BTC");
+  const [swapAmount, setSwapAmount] = useState("");
+  const [swapSlippageBps, setSwapSlippageBps] = useState("100");
+  const [swapQuote, setSwapQuote] = useState<CoboSwapQuote | null>(null);
+  const [swapExecution, setSwapExecution] = useState<CoboSwapExecution | null>(null);
+  const [swapTxStatus, setSwapTxStatus] = useState<Record<string, { status: string; txHash?: string }>>({});
+  const [swapQuoting, setSwapQuoting] = useState(false);
+  const [swapExecuting, setSwapExecuting] = useState(false);
+  const [swapStatusLoading, setSwapStatusLoading] = useState(false);
 
   useEffect(() => {
     const refresh = () => setAccount(loadSimulationAccount());
@@ -1983,6 +2010,113 @@ function ProfileView({
     }
   };
 
+  const quoteCoboSwap = async () => {
+    if (!wallet || wallet.kind !== "cobo" || (!coboConfig && !wallet.configPath)) {
+      notify("请先连接 Cobo Agent");
+      return;
+    }
+    if (!swapAmount.trim()) {
+      notify("请输入 USDT 金额");
+      return;
+    }
+    setSwapQuoting(true);
+    try {
+      const response = await fetch("/api/cobo/swap/quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(coboConfig ? { config: coboConfig } : { configPath: wallet.configPath }),
+          sellSymbol: "USDT",
+          buySymbol: swapBuySymbol,
+          amount: swapAmount.trim(),
+          slippageBps: Number(swapSlippageBps) || 100,
+        }),
+      });
+      const data = await response.json() as CoboSwapQuote & { error?: string };
+      if (!response.ok) {
+        throw new Error(data.error || "获取报价失败");
+      }
+      setSwapQuote(data);
+      setSwapExecution(null);
+      setSwapTxStatus({});
+      notify(`报价已生成：预计可得 ${data.buy.amount} ${data.buy.symbol}`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "获取报价失败";
+      notify(reason);
+    } finally {
+      setSwapQuoting(false);
+    }
+  };
+
+  const executeCoboSwap = async () => {
+    if (!wallet || wallet.kind !== "cobo" || (!coboConfig && !wallet.configPath)) {
+      notify("请先连接 Cobo Agent");
+      return;
+    }
+    if (!swapQuote) {
+      notify("请先获取报价");
+      return;
+    }
+    setSwapExecuting(true);
+    try {
+      const response = await fetch("/api/cobo/swap/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(coboConfig ? { config: coboConfig } : { configPath: wallet.configPath }),
+          approveOperation: swapQuote.approveOperation,
+          swapOperation: swapQuote.swapOperation,
+        }),
+      });
+      const data = await response.json() as CoboSwapExecution & { error?: string };
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || "Swap 执行失败");
+      }
+      setSwapExecution(data);
+      notify(`交易已提交，request_id: ${data.swap.requestId ?? data.swap.txId ?? "N/A"}`);
+      await loadPortfolio();
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Swap 执行失败";
+      notify(reason);
+    } finally {
+      setSwapExecuting(false);
+    }
+  };
+
+  const refreshSwapStatus = async () => {
+    if (!wallet || wallet.kind !== "cobo" || (!coboConfig && !wallet.configPath)) return;
+    const requestIds = [swapExecution?.approve?.requestId, swapExecution?.swap?.requestId].filter((item): item is string => Boolean(item));
+    if (!requestIds.length) {
+      notify("暂无可查询的 request_id");
+      return;
+    }
+    setSwapStatusLoading(true);
+    try {
+      const statusEntries = await Promise.all(requestIds.map(async (requestId) => {
+        const response = await fetch("/api/cobo/tx-status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...(coboConfig ? { config: coboConfig } : { configPath: wallet.configPath }),
+            requestId,
+          }),
+        });
+        const payload = await response.json() as { error?: string; status?: string; txHash?: string };
+        if (!response.ok) {
+          throw new Error(payload.error || `查询 ${requestId} 失败`);
+        }
+        return [requestId, { status: payload.status ?? "unknown", txHash: payload.txHash }] as const;
+      }));
+      setSwapTxStatus(Object.fromEntries(statusEntries));
+      notify("已刷新链上状态");
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "查询状态失败";
+      notify(reason);
+    } finally {
+      setSwapStatusLoading(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-[1100px] px-5 py-12 lg:px-10">
       <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
@@ -2091,26 +2225,85 @@ function ProfileView({
           {portfolioUpdatedAt && <p className="mt-4 text-[9px] text-[var(--muted)]">最近更新：{new Date(portfolioUpdatedAt).toLocaleString("zh-CN")}</p>}
         </div>
         {wallet?.kind === "cobo" && (
-          <div className="mt-4 plan-card">
-            <div className="section-label">COBO AGENT OPERATION</div>
-            <h3 className="mt-2 font-serif text-2xl">授权与执行</h3>
-            <p className="mt-2 text-xs text-[var(--muted)]">先请求授权，再确认执行。操作将通过后端代理发送到 Hermes 上的 Cobo Agent。</p>
-            <div className="mt-4 grid gap-3 md:grid-cols-[.7fr_1.3fr]">
-              <input value={coboAction} onChange={(event) => setCoboAction(event.target.value)} placeholder="operation action，例如 transfer" className="rounded-xl border border-[var(--line)] bg-transparent px-4 py-3 text-sm outline-none focus:border-[var(--green)]" />
-              <textarea value={coboPayloadText} onChange={(event) => setCoboPayloadText(event.target.value)} rows={5} className="rounded-xl border border-[var(--line)] bg-transparent px-4 py-3 font-mono text-xs outline-none focus:border-[var(--green)]" />
+          <>
+            <div className="mt-4 plan-card">
+              <div className="section-label">COBO REAL SWAP</div>
+              <h3 className="mt-2 font-serif text-2xl">USDT 实盘兑换</h3>
+              <p className="mt-2 text-xs text-[var(--muted)]">通过 0x 生成可执行 calldata，再由 Cobo 提交链上交易。可用 request_id 回查交易状态。</p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border border-[var(--line)] px-4 py-3 text-sm">
+                  <p className="text-[10px] text-[var(--muted)]">卖出</p>
+                  <p className="mt-1 font-semibold">USDT</p>
+                </div>
+                <label className="rounded-xl border border-[var(--line)] px-4 py-3 text-sm">
+                  <p className="text-[10px] text-[var(--muted)]">买入</p>
+                  <select value={swapBuySymbol} onChange={(event) => setSwapBuySymbol(event.target.value as "BTC" | "ETH")} className="mt-1 w-full bg-transparent font-semibold outline-none">
+                    <option value="BTC">BTC (WBTC)</option>
+                    <option value="ETH">ETH (WETH)</option>
+                  </select>
+                </label>
+                <label className="rounded-xl border border-[var(--line)] px-4 py-3 text-sm">
+                  <p className="text-[10px] text-[var(--muted)]">滑点 bps</p>
+                  <input value={swapSlippageBps} onChange={(event) => setSwapSlippageBps(event.target.value)} inputMode="numeric" className="mt-1 w-full bg-transparent font-semibold outline-none" />
+                </label>
+              </div>
+              <div className="mt-3 rounded-xl border border-[var(--line)] px-4 py-3">
+                <p className="text-[10px] text-[var(--muted)]">卖出数量（USDT）</p>
+                <input value={swapAmount} onChange={(event) => setSwapAmount(event.target.value)} inputMode="decimal" placeholder="例如 50" className="mt-1 w-full bg-transparent text-lg font-semibold outline-none" />
+              </div>
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <button onClick={() => void quoteCoboSwap()} disabled={swapQuoting || swapExecuting} className="secondary-btn flex-1">
+                  {swapQuoting ? <LoaderCircle className="animate-spin" size={15} /> : <RefreshCw size={15} />}
+                  {swapQuoting ? "报价中..." : "1) 获取可执行报价"}
+                </button>
+                <button onClick={() => void executeCoboSwap()} disabled={!swapQuote || swapExecuting} className="primary-btn flex-1">
+                  {swapExecuting ? <LoaderCircle className="animate-spin" size={15} /> : <CircleDollarSign size={15} />}
+                  {swapExecuting ? "执行中..." : "2) 提交链上交易"}
+                </button>
+                <button onClick={() => void refreshSwapStatus()} disabled={!swapExecution || swapStatusLoading} className="secondary-btn flex-1">
+                  {swapStatusLoading ? <LoaderCircle className="animate-spin" size={15} /> : <ShieldCheck size={15} />}
+                  {swapStatusLoading ? "查询中..." : "3) 查询链上状态"}
+                </button>
+              </div>
+              {swapQuote && (
+                <p className="mt-3 text-xs text-[var(--muted)]">
+                  报价来源：{swapQuote.quoteSource} · 预计得到 {swapQuote.buy.amount} {swapQuote.buy.symbol} · spender {shortAddress(swapQuote.allowanceTarget)}
+                </p>
+              )}
+              {swapExecution && (
+                <div className="mt-3 rounded-lg bg-[var(--panel-soft)] p-3 text-[10px] leading-5 text-[var(--muted)]">
+                  <div>Approve request_id: {swapExecution.approve?.requestId ?? "已跳过"}</div>
+                  <div>Swap request_id: {swapExecution.swap.requestId ?? "未返回"}</div>
+                  {swapTxStatus[swapExecution.swap.requestId ?? ""] && (
+                    <div>
+                      Swap 状态：{swapTxStatus[swapExecution.swap.requestId ?? ""]?.status}
+                      {swapTxStatus[swapExecution.swap.requestId ?? ""]?.txHash ? ` · tx ${swapTxStatus[swapExecution.swap.requestId ?? ""]?.txHash}` : ""}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-              <button onClick={() => void authorizeCobo()} disabled={coboAuthorizing || coboExecuting} className="secondary-btn flex-1">
-                {coboAuthorizing ? <LoaderCircle className="animate-spin" size={15} /> : <ShieldCheck size={15} />}
-                {coboAuthorizing ? "授权中..." : "1) 请求授权"}
-              </button>
-              <button onClick={() => void executeCobo()} disabled={!coboAuthReady || coboExecuting} className="primary-btn flex-1">
-                {coboExecuting ? <LoaderCircle className="animate-spin" size={15} /> : <CircleDollarSign size={15} />}
-                {coboExecuting ? "执行中..." : "2) 确认授权并执行"}
-              </button>
+            <div className="mt-4 plan-card">
+              <div className="section-label">COBO AGENT OPERATION</div>
+              <h3 className="mt-2 font-serif text-2xl">高级自定义操作</h3>
+              <p className="mt-2 text-xs text-[var(--muted)]">用于调试任意 action。生产演示优先使用上方的 USDT 实盘兑换面板。</p>
+              <div className="mt-4 grid gap-3 md:grid-cols-[.7fr_1.3fr]">
+                <input value={coboAction} onChange={(event) => setCoboAction(event.target.value)} placeholder="operation action，例如 transfer" className="rounded-xl border border-[var(--line)] bg-transparent px-4 py-3 text-sm outline-none focus:border-[var(--green)]" />
+                <textarea value={coboPayloadText} onChange={(event) => setCoboPayloadText(event.target.value)} rows={5} className="rounded-xl border border-[var(--line)] bg-transparent px-4 py-3 font-mono text-xs outline-none focus:border-[var(--green)]" />
+              </div>
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <button onClick={() => void authorizeCobo()} disabled={coboAuthorizing || coboExecuting} className="secondary-btn flex-1">
+                  {coboAuthorizing ? <LoaderCircle className="animate-spin" size={15} /> : <ShieldCheck size={15} />}
+                  {coboAuthorizing ? "授权中..." : "1) 请求授权"}
+                </button>
+                <button onClick={() => void executeCobo()} disabled={!coboAuthReady || coboExecuting} className="primary-btn flex-1">
+                  {coboExecuting ? <LoaderCircle className="animate-spin" size={15} /> : <CircleDollarSign size={15} />}
+                  {coboExecuting ? "执行中..." : "2) 确认授权并执行"}
+                </button>
+              </div>
+              <p className="mt-2 text-[10px] text-[var(--muted)]">{coboAuthReady ? `已完成授权${coboRequestId ? `，请求号：${coboRequestId}` : ""}` : "尚未授权。请先完成第 1 步。"}</p>
             </div>
-            <p className="mt-2 text-[10px] text-[var(--muted)]">{coboAuthReady ? `已完成授权${coboRequestId ? `，请求号：${coboRequestId}` : ""}` : "尚未授权。请先完成第 1 步。"}</p>
-          </div>
+          </>
         )}
         <div className="mt-4 stat-card">
           <div className="flex items-center justify-between"><div><h2 className="font-serif text-xl">委员会策略</h2><p className="mt-1 text-[10px] text-[var(--muted)]">已确认的方案可作为真实交易执行清单</p></div><span className="rounded-full bg-[var(--wash)] px-3 py-1 text-[10px]">{realTradeStrategies.length} 个方案</span></div>

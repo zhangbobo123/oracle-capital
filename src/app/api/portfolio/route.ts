@@ -14,6 +14,7 @@ type IndexedBalance = {
   usdPrice?: number;
   usdValue?: number;
   native?: boolean;
+  priceExcluded?: boolean;
 };
 
 const chainConfig: Record<PortfolioChain, {
@@ -159,6 +160,8 @@ async function getEvmFallbackBalances(address: string, chain: "ethereum" | "bsc"
         decimals?: string | number;
         icon_url?: string;
         exchange_rate?: string;
+        circulating_market_cap?: string;
+        reputation?: string;
       };
     }>;
     for (const item of items) {
@@ -166,8 +169,16 @@ async function getEvmFallbackBalances(address: string, chain: "ethereum" | "bsc"
       const rawValue = numeric(item.value) ?? 0;
       const balance = rawValue / 10 ** decimals;
       if (balance <= 0) continue;
-      const usdPrice = numeric(item.token?.exchange_rate);
+      const candidatePrice = numeric(item.token?.exchange_rate);
+      const marketCap = numeric(item.token?.circulating_market_cap);
       const symbol = item.token?.symbol || "TOKEN";
+      const candidateValue = candidatePrice === undefined ? undefined : balance * candidatePrice;
+      const trustedPrice = item.token?.reputation !== "spam"
+        && item.token?.reputation !== "scam"
+        && marketCap !== undefined
+        && marketCap > 0
+        && candidateValue !== undefined
+        && candidateValue <= marketCap;
       balances.push({
         chain: config.label,
         symbol,
@@ -175,8 +186,9 @@ async function getEvmFallbackBalances(address: string, chain: "ethereum" | "bsc"
         balance,
         tokenAddress: item.token?.address_hash,
         logo: item.token?.icon_url,
-        usdPrice,
-        usdValue: usdPrice === undefined ? undefined : balance * usdPrice,
+        usdPrice: trustedPrice ? candidatePrice : undefined,
+        usdValue: trustedPrice ? candidateValue : undefined,
+        priceExcluded: !trustedPrice,
       });
     }
   } catch (error) {
@@ -236,6 +248,41 @@ async function getSolanaFallbackBalances(address: string) {
   return balances;
 }
 
+async function enrichUsdValues(balances: IndexedBalance[], chain: PortfolioChain) {
+  const config = chainConfig[chain];
+  const nativePriceIds: Record<PortfolioChain, string> = {
+    ethereum: "coingecko:ethereum",
+    bsc: "coingecko:binancecoin",
+    solana: "coingecko:solana",
+  };
+  const entries = balances.map((balance) => {
+    if (balance.priceExcluded) return null;
+    if (balance.usdPrice !== undefined) return null;
+    if (balance.native) return { balance, id: nativePriceIds[chain] };
+    if (!balance.tokenAddress) return null;
+    return { balance, id: `${chain === "bsc" ? "bsc" : config.network.split("-")[0]}:${balance.tokenAddress}` };
+  }).filter((entry): entry is { balance: IndexedBalance; id: string } => Boolean(entry));
+  if (!entries.length) return balances;
+  try {
+    const ids = [...new Set(entries.map((entry) => entry.id))];
+    const response = await fetch(`https://coins.llama.fi/prices/current/${ids.join(",")}`, {
+      signal: AbortSignal.timeout(10_000),
+      cache: "no-store",
+    });
+    if (!response.ok) return balances;
+    const payload = await response.json() as { coins?: Record<string, { price?: number }> };
+    for (const entry of entries) {
+      const price = numeric(payload.coins?.[entry.id]?.price);
+      if (price === undefined) continue;
+      entry.balance.usdPrice = price;
+      entry.balance.usdValue = entry.balance.balance * price;
+    }
+  } catch (error) {
+    console.error("Portfolio USD price enrichment", error);
+  }
+  return balances;
+}
+
 export async function GET(request: NextRequest) {
   const address = request.nextUrl.searchParams.get("address")?.trim() ?? "";
   const chain = request.nextUrl.searchParams.get("chain") as PortfolioChain | null;
@@ -264,6 +311,7 @@ export async function GET(request: NextRequest) {
         ? await getSolanaFallbackBalances(address)
         : await getEvmFallbackBalances(address, chain);
     }
+    balances = await enrichUsdValues(balances, chain);
     balances.sort((a, b) => (b.usdValue ?? 0) - (a.usdValue ?? 0) || b.balance - a.balance);
     return NextResponse.json({
       chain,

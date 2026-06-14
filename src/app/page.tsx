@@ -694,7 +694,7 @@ export default function Home() {
           onOpenConversation={openSavedConversation}
         />
       )}
-      {view === "chat" && <ChatView masters={masters} selectedMasters={selectedMasters} initialQuestion={question} initialConversationId={conversationToOpen} onRestoreMasters={setSelected} onBack={() => setView("home")} onOpenSimulation={() => { setProfileMode("simulation"); setView("profile"); }} onOpenRealWallet={() => { setProfileMode("wallet"); setView("profile"); }} wallet={wallet} onNeedWallet={() => setWalletOpen(true)} customApi={customApi} notify={setToast} />}
+      {view === "chat" && <ChatView masters={masters} selectedMasters={selectedMasters} initialQuestion={question} initialConversationId={conversationToOpen} onRestoreMasters={setSelected} onBack={() => setView("home")} onOpenSimulation={() => { setProfileMode("simulation"); setView("profile"); }} onOpenRealWallet={(decision) => { const strategy: SimulationAccount["executedStrategies"][number] = { id: crypto.randomUUID(), title: decision.title, amount: 0, consensusRate: decision.consensusRate, riskLevel: decision.riskLevel, allocations: decision.allocations.map((allocation) => ({ ...allocation, amount: 0 })), createdAt: eventTimestamp() }; window.localStorage.setItem("oracle-capital-pending-real-strategy", JSON.stringify(strategy)); setProfileMode("wallet"); setView("profile"); }} wallet={wallet} onNeedWallet={() => setWalletOpen(true)} customApi={customApi} notify={setToast} />}
       {view === "profile" && <ProfileView key={`${profileMode}-${wallet?.kind ?? "none"}`} wallet={wallet} coboConfig={coboConfig} initialMode={profileMode} onNeedWallet={() => setWalletOpen(true)} notify={setToast} />}
       {walletOpen && <WalletModal connected={wallet} onClose={() => setWalletOpen(false)} onConnect={(value, nextCoboConfig) => { setWallet(value); setCoboConfig(nextCoboConfig ?? null); window.localStorage.setItem("oracle-capital-wallet", JSON.stringify(value)); setWalletOpen(false); setToast(`${value.label} 已连接`); }} onDisconnect={() => { setWallet(null); setCoboConfig(null); window.localStorage.removeItem("oracle-capital-wallet"); setWalletOpen(false); setToast("钱包已断开"); }} notify={setToast} />}
       {apiOpen && <DeveloperApiModal current={customApi} onClose={() => setApiOpen(false)} onSave={(config) => { setCustomApi(config); setApiOpen(false); setToast("开发者 API 已加密保存并启用"); }} onRemove={() => { setCustomApi(null); setApiOpen(false); setToast("已恢复平台默认 API"); }} />}
@@ -1110,7 +1110,7 @@ function ChatView({
   onRestoreMasters: (masterIds: string[]) => void;
   onBack: () => void;
   onOpenSimulation: () => void;
-  onOpenRealWallet: () => void;
+  onOpenRealWallet: (decision: CommitteeDecision) => void;
   wallet: ConnectedWallet | null;
   onNeedWallet: () => void;
   customApi: CustomApiConfig | null;
@@ -1379,7 +1379,10 @@ function ChatView({
                   <CircleDollarSign size={16} /> {decision.executedAt ? "方案已执行" : "预览模拟执行"}
                 </button>
                 <button
-                  onClick={() => wallet ? onOpenRealWallet() : onNeedWallet()}
+                  onClick={() => {
+                    onOpenRealWallet(decision);
+                    if (!wallet) onNeedWallet();
+                  }}
                   className="secondary-btn flex-1"
                 >
                   <Wallet size={16} /> {wallet ? "真实交易" : "连接钱包交易"}
@@ -1599,11 +1602,46 @@ type WalletBalance = {
 
 type PortfolioChain = "ethereum" | "bsc" | "solana";
 
+type RealTradeRecord = {
+  id: string;
+  strategyId: string;
+  strategyTitle: string;
+  chain: PortfolioChain;
+  amountUsd: number;
+  status: "pending" | "executed" | "failed";
+  txId?: string;
+  failureReason?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
 const portfolioChains: { id: PortfolioChain; label: string; symbol: string }[] = [
   { id: "ethereum", label: "Ethereum", symbol: "ETH" },
   { id: "bsc", label: "BNB Chain", symbol: "BNB" },
   { id: "solana", label: "Solana", symbol: "SOL" },
 ];
+
+const realTradesStorageKey = "oracle-capital-real-trades";
+const pendingRealStrategyStorageKey = "oracle-capital-pending-real-strategy";
+type ExecutedStrategy = SimulationAccount["executedStrategies"][number];
+
+function loadRealTrades(): RealTradeRecord[] {
+  try {
+    const raw = window.localStorage.getItem(realTradesStorageKey);
+    return raw ? JSON.parse(raw) as RealTradeRecord[] : [];
+  } catch {
+    window.localStorage.removeItem(realTradesStorageKey);
+    return [];
+  }
+}
+
+function saveRealTrades(records: RealTradeRecord[]) {
+  window.localStorage.setItem(realTradesStorageKey, JSON.stringify(records.slice(0, 50)));
+}
+
+function eventTimestamp() {
+  return Date.now();
+}
 
 function ProfileView({
   wallet,
@@ -1634,6 +1672,12 @@ function ProfileView({
   const [portfolioChain, setPortfolioChain] = useState<PortfolioChain>(wallet?.kind === "solana" ? "solana" : "ethereum");
   const [portfolioSource, setPortfolioSource] = useState("");
   const [portfolioUpdatedAt, setPortfolioUpdatedAt] = useState("");
+  const [realTrades, setRealTrades] = useState<RealTradeRecord[]>([]);
+  const [pendingRealStrategy, setPendingRealStrategy] = useState<ExecutedStrategy | null>(null);
+  const [realTradeStrategyId, setRealTradeStrategyId] = useState("");
+  const [realTradeAmount, setRealTradeAmount] = useState("");
+  const [realTradeOpen, setRealTradeOpen] = useState(false);
+  const [realTradeRunning, setRealTradeRunning] = useState(false);
   const [coboAction, setCoboAction] = useState("transfer");
   const [coboPayloadText, setCoboPayloadText] = useState("{\n  \"symbol\": \"USDC\",\n  \"amount\": 100,\n  \"to\": \"0x...\"\n}");
   const [coboRequestId, setCoboRequestId] = useState("");
@@ -1643,7 +1687,16 @@ function ProfileView({
 
   useEffect(() => {
     const refresh = () => setAccount(loadSimulationAccount());
-    const timer = window.setTimeout(refresh, 0);
+    const timer = window.setTimeout(() => {
+      refresh();
+      setRealTrades(loadRealTrades());
+      try {
+        const rawStrategy = window.localStorage.getItem(pendingRealStrategyStorageKey);
+        setPendingRealStrategy(rawStrategy ? JSON.parse(rawStrategy) as ExecutedStrategy : null);
+      } catch {
+        window.localStorage.removeItem(pendingRealStrategyStorageKey);
+      }
+    }, 0);
     window.addEventListener("oracle-capital-simulation-updated", refresh);
     window.addEventListener("storage", refresh);
     return () => {
@@ -1666,6 +1719,105 @@ function ProfileView({
   const stableRatio = totalValue ? usdcValue / totalValue * 100 : 0;
   const concentration = totalValue ? Math.max(...account.positions.map((position) => position.value / totalValue * 100), 0) : 0;
   const riskLabel = concentration > 70 && stableRatio < 40 ? "集中度偏高" : stableRatio >= 60 ? "防守型" : "均衡型";
+  const realPortfolioUsd = walletBalances.reduce((sum, balance) => sum + (balance.usdValue ?? 0), 0);
+  const unpricedAssetCount = walletBalances.filter((balance) => balance.usdValue === undefined).length;
+  const realTradeStrategies = pendingRealStrategy
+    ? [pendingRealStrategy, ...account.executedStrategies.filter((strategy) => strategy.id !== pendingRealStrategy.id)]
+    : account.executedStrategies;
+  const selectedRealStrategy = realTradeStrategies.find((strategy) => strategy.id === realTradeStrategyId);
+
+  const persistRealTrade = (record: RealTradeRecord) => {
+    setRealTrades((current) => {
+      const next = [record, ...current.filter((item) => item.id !== record.id)];
+      saveRealTrades(next);
+      return next;
+    });
+  };
+
+  const openRealTrade = (strategyId: string) => {
+    if (!wallet) {
+      onNeedWallet();
+      return;
+    }
+    setRealTradeStrategyId(strategyId);
+    setRealTradeAmount("");
+    setRealTradeOpen(true);
+  };
+
+  const executeRealTrade = async () => {
+    if (!wallet || !selectedRealStrategy) return;
+    const amountUsd = Number(realTradeAmount);
+    if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
+      notify("请输入有效的 USD 交易金额");
+      return;
+    }
+    const startedAt = eventTimestamp();
+    const record: RealTradeRecord = {
+      id: crypto.randomUUID(),
+      strategyId: selectedRealStrategy.id,
+      strategyTitle: selectedRealStrategy.title,
+      chain: portfolioChain,
+      amountUsd,
+      status: "pending",
+      createdAt: startedAt,
+      updatedAt: startedAt,
+    };
+    persistRealTrade(record);
+    setRealTradeRunning(true);
+    try {
+      if (wallet.kind !== "cobo" || (!coboConfig && !wallet.configPath)) {
+        throw new Error("当前钱包未配置可执行的交易路由。请连接 Cobo Agent，或等待接入已审计的 DEX 聚合器。");
+      }
+      const operation = {
+        action: "execute_strategy",
+        chain: portfolioChain,
+        amountUsd,
+        strategy: {
+          id: selectedRealStrategy.id,
+          title: selectedRealStrategy.title,
+          allocations: selectedRealStrategy.allocations.map((allocation) => ({
+            symbol: inferAllocationSymbol(allocation.label),
+            percentage: allocation.percentage,
+            amountUsd: amountUsd * allocation.percentage / 100,
+          })),
+        },
+      };
+      const configPayload = coboConfig ? { config: coboConfig } : { configPath: wallet.configPath };
+      const authorizeResponse = await fetch("/api/cobo/authorize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...configPayload, operation }),
+      });
+      const authorization = await authorizeResponse.json() as { authorized?: boolean; requestId?: string; error?: string; message?: string };
+      if (!authorizeResponse.ok || !authorization.authorized) {
+        throw new Error(authorization.error || authorization.message || "Cobo 策略授权失败");
+      }
+      const executeResponse = await fetch("/api/cobo/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...configPayload, requestId: authorization.requestId, operation }),
+      });
+      const execution = await executeResponse.json() as { ok?: boolean; txId?: string; error?: string; message?: string };
+      if (!executeResponse.ok || execution.ok === false) {
+        throw new Error(execution.error || execution.message || "Cobo 策略执行失败");
+      }
+      const executed = { ...record, status: "executed" as const, txId: execution.txId || undefined, updatedAt: eventTimestamp() };
+      persistRealTrade(executed);
+      if (pendingRealStrategy?.id === selectedRealStrategy.id) {
+        window.localStorage.removeItem(pendingRealStrategyStorageKey);
+        setPendingRealStrategy(null);
+      }
+      setRealTradeOpen(false);
+      notify(execution.txId ? `真实策略已执行：${execution.txId}` : "真实策略已提交执行");
+      await loadPortfolio();
+    } catch (error) {
+      const failureReason = error instanceof Error ? error.message : "未知执行错误";
+      persistRealTrade({ ...record, status: "failed", failureReason, updatedAt: eventTimestamp() });
+      notify(failureReason);
+    } finally {
+      setRealTradeRunning(false);
+    }
+  };
 
   const saveCashAction = (next: SimulationAccount) => {
     const total = simulationTotal(next);
@@ -1924,14 +2076,14 @@ function ProfileView({
         </div>
         <div className="mt-8 rounded-2xl border border-[var(--line)] bg-[var(--green)] p-6 text-[var(--bg)] shadow-xl">
           <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
-            <div><div className="text-[10px] tracking-[0.18em] opacity-70">REAL WALLET PORTFOLIO</div><div className={`mt-3 font-serif text-4xl ${hidden ? "blur-md select-none" : ""}`}>{wallet ? walletBalances.length ? `${walletBalances.length} 项资产` : "等待读取" : "未连接"}</div><div className="mt-2 text-xs opacity-70">{wallet ? `${portfolioChains.find((item) => item.id === portfolioChain)?.label} · ${shortAddress(wallet.address)}` : "连接钱包后读取真实链上资产"}</div></div>
-            <div className="grid grid-cols-2 gap-6 text-xs md:grid-cols-3"><div><span className="opacity-60">资产数量</span><strong className="mt-1 block text-base">{walletBalances.length}</strong></div><div><span className="opacity-60">活跃网络</span><strong className="mt-1 block text-base">{new Set(walletBalances.map((item) => item.chain)).size}</strong></div><div><span className="opacity-60">委员会策略</span><strong className="mt-1 block text-base">{account.executedStrategies.length}</strong></div></div>
+            <div><div className="text-[10px] tracking-[0.18em] opacity-70">REAL WALLET PORTFOLIO</div><div className={`mt-3 font-serif text-5xl ${hidden ? "blur-md select-none" : ""}`}>{wallet ? `$${realPortfolioUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "$0.00"}</div><div className="mt-2 text-xs opacity-70">{wallet ? `${portfolioChains.find((item) => item.id === portfolioChain)?.label} 总资产 · USD 估值${unpricedAssetCount ? ` · ${unpricedAssetCount} 项暂无价格` : ""}` : "连接钱包后读取真实链上资产"}</div></div>
+            <div className="grid grid-cols-2 gap-6 text-xs md:grid-cols-3"><div><span className="opacity-60">资产数量</span><strong className="mt-1 block text-base">{walletBalances.length}</strong></div><div><span className="opacity-60">已估值资产</span><strong className="mt-1 block text-base">{walletBalances.length - unpricedAssetCount}</strong></div><div><span className="opacity-60">真实执行</span><strong className="mt-1 block text-base">{realTrades.filter((trade) => trade.status === "executed").length}</strong></div></div>
           </div>
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           <button onClick={() => wallet ? void navigator.clipboard?.writeText(wallet.address).then(() => notify("收款地址已复制")) : onNeedWallet()} className="stat-card flex items-center gap-4 text-left"><span className="grid h-12 w-12 place-items-center rounded-full bg-[var(--wash)]"><ArrowDownToLine size={20} /></span><span><strong>真实充值</strong><span className="mt-1 block text-xs text-[var(--muted)]">{wallet ? "复制当前钱包收款地址" : "连接钱包后获取地址"}</span></span></button>
           <button onClick={() => wallet ? notify("请在钱包中发起转账并确认网络、地址与手续费") : onNeedWallet()} className="stat-card flex items-center gap-4 text-left"><span className="grid h-12 w-12 place-items-center rounded-full bg-[var(--wash)]"><ArrowUpFromLine size={20} /></span><span><strong>真实提现</strong><span className="mt-1 block text-xs text-[var(--muted)]">通过已连接钱包安全发送资产</span></span></button>
-          <button onClick={() => notify(account.executedStrategies.length ? "下方已展示可用于真实交易的委员会策略" : "先在委员会对话中生成并确认一份投资方案")} className="stat-card flex items-center gap-4 text-left"><span className="grid h-12 w-12 place-items-center rounded-full bg-[var(--wash)]"><Sparkles size={20} /></span><span><strong>AI 策略</strong><span className="mt-1 block text-xs text-[var(--muted)]">查看委员会方案并进入真实交易</span></span></button>
+          <button onClick={() => realTradeStrategies[0] ? openRealTrade(realTradeStrategies[0].id) : notify("先在委员会对话中生成并确认一份投资方案")} className="stat-card flex items-center gap-4 text-left"><span className="grid h-12 w-12 place-items-center rounded-full bg-[var(--wash)]"><Sparkles size={20} /></span><span><strong>AI 策略</strong><span className="mt-1 block text-xs text-[var(--muted)]">输入金额并发起真实执行</span></span></button>
         </div>
         <div className="mt-4 plan-card">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><div className="section-label">真实链上钱包</div><h2 className="mt-2 font-serif text-2xl">{wallet ? `${wallet.label} ${shortAddress(wallet.address)}` : "尚未连接钱包"}</h2><p className="mt-2 text-[10px] text-[var(--muted)]">{wallet?.kind === "cobo" ? `Hermes Agent: ${coboConfig?.baseUrl ?? wallet.endpoint ?? "未记录"}` : portfolioSource ? `数据源：${portfolioSource}` : "区块链索引器模式"}</p></div>{wallet ? <button onClick={() => void loadPortfolio()} disabled={portfolioLoading} className="secondary-btn"><RefreshCw className={portfolioLoading ? "animate-spin" : ""} size={15} />刷新资产</button> : <button onClick={onNeedWallet} className="primary-btn"><Wallet size={15} />连接钱包</button>}</div>
@@ -1961,9 +2113,12 @@ function ProfileView({
           </div>
         )}
         <div className="mt-4 stat-card">
-          <div className="flex items-center justify-between"><div><h2 className="font-serif text-xl">委员会策略</h2><p className="mt-1 text-[10px] text-[var(--muted)]">已确认的方案可作为真实交易执行清单</p></div><span className="rounded-full bg-[var(--wash)] px-3 py-1 text-[10px]">{account.executedStrategies.length} 个方案</span></div>
+          <div className="flex items-center justify-between"><div><h2 className="font-serif text-xl">委员会策略</h2><p className="mt-1 text-[10px] text-[var(--muted)]">已确认的方案可作为真实交易执行清单</p></div><span className="rounded-full bg-[var(--wash)] px-3 py-1 text-[10px]">{realTradeStrategies.length} 个方案</span></div>
           <div className="mt-5 divide-y divide-[var(--line)]">
-            {account.executedStrategies.length ? account.executedStrategies.map((strategy) => <div key={strategy.id} className="flex flex-wrap items-center justify-between gap-3 py-4"><div><strong className="text-sm">{strategy.title}</strong><p className="mt-1 text-[10px] text-[var(--muted)]">共识率 {strategy.consensusRate}% · 风险 {strategy.riskLevel} · {strategy.allocations.length} 项配置</p></div><button onClick={() => wallet?.kind === "cobo" ? notify("请在上方 Cobo 授权区核对策略参数后执行") : notify("浏览器钱包真实交易需要逐笔确认代币、网络、合约地址和滑点")} className="secondary-btn">真实交易</button></div>) : <p className="py-5 text-sm text-[var(--muted)]">暂无委员会策略。请先在对话中生成方案。</p>}
+            {realTradeStrategies.length ? realTradeStrategies.map((strategy) => {
+              const latestTrade = realTrades.find((trade) => trade.strategyId === strategy.id);
+              return <div key={strategy.id} className="flex flex-wrap items-center justify-between gap-3 py-4"><div><strong className="text-sm">{strategy.title}</strong><p className="mt-1 text-[10px] text-[var(--muted)]">共识率 {strategy.consensusRate}% · 风险 {strategy.riskLevel} · {strategy.allocations.length} 项配置</p>{latestTrade && <p className={`mt-2 text-[10px] ${latestTrade.status === "executed" ? "text-emerald-600" : latestTrade.status === "failed" ? "text-red-500" : "text-amber-600"}`}>{latestTrade.status === "executed" ? `已执行 · $${latestTrade.amountUsd.toFixed(2)}${latestTrade.txId ? ` · ${shortAddress(latestTrade.txId)}` : ""}` : latestTrade.status === "failed" ? `执行失败 · ${latestTrade.failureReason}` : `执行中 · $${latestTrade.amountUsd.toFixed(2)}`}</p>}</div><button onClick={() => openRealTrade(strategy.id)} className="secondary-btn">真实交易</button></div>;
+            }) : <p className="py-5 text-sm text-[var(--muted)]">暂无委员会策略。请先在对话中生成方案。</p>}
           </div>
         </div>
         <div className="mt-4 stat-card">
@@ -1974,8 +2129,22 @@ function ProfileView({
         </div>
         <div className="mt-4 stat-card">
           <div className="flex items-center justify-between"><div><h2 className="font-serif text-xl">链上资金流水</h2><p className="mt-1 text-[10px] text-[var(--muted)]">充值、提现和策略成交记录</p></div><History size={17} className="text-[var(--gold)]" /></div>
-          <p className="mt-5 rounded-xl bg-[var(--panel-soft)] p-4 text-sm leading-6 text-[var(--muted)]">{wallet ? "当前 RPC 仅提供余额读取。接入区块链索引器后，这里将按钱包地址展示真实交易哈希、方向、金额、网络和状态，不会用模拟数据冒充真实流水。" : "连接钱包后可读取对应地址的链上资金流水。"}</p>
+          <div className="mt-5 divide-y divide-[var(--line)]">
+            {realTrades.length ? realTrades.map((trade) => <div key={trade.id} className="flex flex-wrap items-center gap-4 py-4 text-xs"><span className={`${trade.status === "executed" ? "text-emerald-600" : trade.status === "failed" ? "text-red-500" : "text-amber-600"}`}>{trade.status === "executed" ? <Check size={16} /> : trade.status === "failed" ? <X size={16} /> : <LoaderCircle className="animate-spin" size={16} />}</span><div className="min-w-0 flex-1"><strong className="block truncate">{trade.strategyTitle}</strong><span className="mt-1 block text-[10px] text-[var(--muted)]">{portfolioChains.find((chain) => chain.id === trade.chain)?.label} · {new Date(trade.updatedAt).toLocaleString("zh-CN")}</span>{trade.failureReason && <span className="mt-1 block text-[10px] text-red-500">{trade.failureReason}</span>}{trade.txId && <span className="mt-1 block truncate font-mono text-[10px] text-[var(--muted)]">TX: {trade.txId}</span>}</div><div className="text-right"><strong>${trade.amountUsd.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong><span className="mt-1 block text-[10px] text-[var(--muted)]">{trade.status === "executed" ? "已执行" : trade.status === "failed" ? "失败" : "执行中"}</span></div></div>) : <p className="rounded-xl bg-[var(--panel-soft)] p-4 text-sm leading-6 text-[var(--muted)]">{wallet ? "尚无真实交易记录。执行委员会策略后，将在这里保存状态、交易哈希或失败原因。" : "连接钱包后可发起并记录真实交易。"}</p>}
+          </div>
         </div>
+        {realTradeOpen && selectedRealStrategy && (
+          <div className="fixed inset-0 z-[90] grid place-items-center bg-black/45 p-4 backdrop-blur-sm">
+            <button className="absolute inset-0 cursor-default" aria-label="关闭真实交易" onClick={() => !realTradeRunning && setRealTradeOpen(false)} />
+            <div className="relative z-10 w-full max-w-lg rounded-2xl border border-[var(--line)] bg-[var(--panel)] p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4"><div><div className="section-label"><Wallet size={14} /> 真实策略执行</div><h3 className="mt-3 font-serif text-2xl">{selectedRealStrategy.title}</h3><p className="mt-2 text-xs text-[var(--muted)]">{portfolioChains.find((chain) => chain.id === portfolioChain)?.label} · 共识率 {selectedRealStrategy.consensusRate}% · 风险 {selectedRealStrategy.riskLevel}</p></div><button disabled={realTradeRunning} onClick={() => setRealTradeOpen(false)} className="icon-btn"><X size={16} /></button></div>
+              <div className="mt-5 grid gap-2 sm:grid-cols-2">{selectedRealStrategy.allocations.map((allocation) => <div key={allocation.label} className="rounded-lg bg-[var(--panel-soft)] p-3"><div className="flex items-center justify-between gap-2 text-xs"><span className="truncate">{allocation.label}</span><strong>{allocation.percentage}%</strong></div><p className="mt-1 text-[10px] text-[var(--muted)]">{realTradeAmount && Number(realTradeAmount) > 0 ? `$${(Number(realTradeAmount) * allocation.percentage / 100).toFixed(2)}` : "等待输入金额"}</p></div>)}</div>
+              <div className="mt-5 rounded-xl border border-[var(--line)] p-4"><label className="text-[10px] text-[var(--muted)]">真实交易金额（USD）</label><input value={realTradeAmount} onChange={(event) => setRealTradeAmount(event.target.value)} disabled={realTradeRunning} inputMode="decimal" placeholder="例如 1000" className="mt-2 w-full bg-transparent font-mono text-2xl outline-none" /><p className="mt-2 text-[10px] text-[var(--muted)]">当前钱包估值：${realPortfolioUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}</p></div>
+              <div className="mt-5 rounded-lg bg-[var(--panel-soft)] p-3 text-[10px] leading-5 text-[var(--muted)]">{wallet?.kind === "cobo" ? "确认后将先请求 Cobo 授权，再提交策略执行。成功保存交易哈希，失败保存服务返回原因。" : "当前浏览器钱包尚未接入已审计的 DEX 聚合器。确认后会保存失败状态及原因，不会伪造链上成交。"}</div>
+              <button disabled={realTradeRunning || !realTradeAmount.trim()} onClick={() => void executeRealTrade()} className="primary-btn mt-5 w-full">{realTradeRunning ? <LoaderCircle className="animate-spin" size={16} /> : <CircleDollarSign size={16} />}{realTradeRunning ? "正在授权并执行..." : "确认真实执行"}</button>
+            </div>
+          </div>
+        )}
       </>}
     </div>
   );

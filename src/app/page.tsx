@@ -1976,8 +1976,14 @@ function WalletModal({
     }
   };
   const connectCobo = async () => {
-    if (!coboBaseUrl.trim()) {
+    const baseUrl = coboBaseUrl.trim();
+    if (!baseUrl) {
       setCoboError("请填写 Hermes/Cobo Agent 地址");
+      return;
+    }
+    const needsWalletId = /api\.agenticwallet\.cobo\.com/i.test(baseUrl);
+    if (needsWalletId && !coboWalletId.trim()) {
+      setCoboError("连接 Cobo Agentic Wallet 时必须填写 Wallet ID");
       return;
     }
     setCoboError("");
@@ -1985,7 +1991,7 @@ function WalletModal({
     try {
       const config: CoboRuntimeConfig = {
         name: "Cobo Agent",
-        baseUrl: coboBaseUrl.trim(),
+        baseUrl,
         apiKey: coboApiKey.trim() || undefined,
         walletId: coboWalletId.trim() || undefined,
       };

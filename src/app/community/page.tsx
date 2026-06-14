@@ -7,7 +7,6 @@ import { masterAvatarPaths } from "@/lib/master-assets";
 import {
   ArrowLeft,
   Award,
-  Download,
   Heart,
   MessageCircle,
   Search,
@@ -144,16 +143,6 @@ export default function CommunityPage() {
       .some((field) => field.toLowerCase().includes(keyword)));
   }, [allMasters, search]);
 
-  const downloadMaster = (master: CommunityMaster) => {
-    const blob = new Blob([JSON.stringify(master, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${master.id}.oracle-master.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-  };
-
   const uploadMaster = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -243,7 +232,7 @@ export default function CommunityPage() {
                   <button onClick={() => toggleLike(master.id)} className={`secondary-btn flex-1 px-3 ${likedMasters.includes(master.id) ? "border-red-500/40 text-red-500" : ""}`}><Heart fill={likedMasters.includes(master.id) ? "currentColor" : "none"} size={14} />{master.uses % 97 + (likedMasters.includes(master.id) ? 1 : 0)}</button>
                   <button onClick={() => setCommentMaster(master)} className="secondary-btn flex-1 px-3"><MessageCircle size={14} />{comments[master.id]?.length ?? 0}</button>
                 </div>
-                <div className="mt-4 flex items-center justify-between border-t border-[var(--line)] pt-4"><div className="text-[10px] text-[var(--muted)]">by {master.author}<br />{master.uses.toLocaleString()} 次使用</div><button onClick={() => downloadMaster(master)} className="secondary-btn px-4"><Download size={14} />下载</button></div>
+                <div className="mt-4 border-t border-[var(--line)] pt-4"><div className="text-[10px] text-[var(--muted)]">by {master.author}<br />{master.uses.toLocaleString()} 次使用</div></div>
               </article>
             ))}
           </div>

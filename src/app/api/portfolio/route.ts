@@ -46,6 +46,15 @@ const chainConfig: Record<PortfolioChain, {
   },
 };
 
+function rpcUrlsFor(chain: PortfolioChain) {
+  const urls = [...chainConfig[chain].rpcUrls];
+  if (chain === "solana") {
+    const configuredUrl = process.env.SOLANA_RPC_URL?.trim();
+    if (configuredUrl) urls.unshift(configuredUrl);
+  }
+  return [...new Set(urls)];
+}
+
 async function rpc(url: string, method: string, params: unknown[]) {
   const response = await fetch(url, {
     method: "POST",
@@ -199,9 +208,10 @@ async function getEvmFallbackBalances(address: string, chain: "ethereum" | "bsc"
 
 async function getSolanaFallbackBalances(address: string) {
   const config = chainConfig.solana;
+  const rpcUrls = rpcUrlsFor("solana");
   const [nativeSettled, tokenSettled] = await Promise.allSettled([
-    rpcWithFallback(config.rpcUrls, "getBalance", [address]),
-    rpcWithFallback(config.rpcUrls, "getTokenAccountsByOwner", [
+    rpcWithFallback(rpcUrls, "getBalance", [address]),
+    rpcWithFallback(rpcUrls, "getTokenAccountsByOwner", [
       address,
       { programId: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" },
       { encoding: "jsonParsed" },
@@ -306,7 +316,11 @@ export async function GET(request: NextRequest) {
       console.error("Alchemy portfolio fallback", error);
     }
     if (!balances) {
-      source = chain === "solana" ? "Solana RPC Token Accounts" : "Blockscout Indexer + Public RPC";
+      source = chain === "solana"
+        ? process.env.SOLANA_RPC_URL?.trim()
+          ? "Chainstack Solana RPC"
+          : "Solana Public RPC"
+        : "Blockscout Indexer + Public RPC";
       balances = chain === "solana"
         ? await getSolanaFallbackBalances(address)
         : await getEvmFallbackBalances(address, chain);

@@ -290,6 +290,33 @@ async function enrichUsdValues(balances: IndexedBalance[], chain: PortfolioChain
   } catch (error) {
     console.error("Portfolio USD price enrichment", error);
   }
+  const nativeBalance = balances.find((balance) => balance.native && balance.usdPrice === undefined);
+  if (nativeBalance) {
+    const coinIds: Record<PortfolioChain, string> = {
+      ethereum: "ethereum",
+      bsc: "binancecoin",
+      solana: "solana",
+    };
+    try {
+      const response = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${coinIds[chain]}&vs_currencies=usd`,
+        {
+          signal: AbortSignal.timeout(10_000),
+          next: { revalidate: 60 },
+        },
+      );
+      if (response.ok) {
+        const payload = await response.json() as Record<string, { usd?: number }>;
+        const price = numeric(payload[coinIds[chain]]?.usd);
+        if (price !== undefined) {
+          nativeBalance.usdPrice = price;
+          nativeBalance.usdValue = nativeBalance.balance * price;
+        }
+      }
+    } catch (error) {
+      console.error("Native USD price fallback", error);
+    }
+  }
   return balances;
 }
 

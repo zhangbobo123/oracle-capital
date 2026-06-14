@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
@@ -256,7 +257,9 @@ export default function MarketPage() {
                 </div>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <span className="grid h-11 w-11 place-items-center rounded-full text-sm font-bold text-[#101713]" style={{ background: asset.color }}>{asset.symbol.slice(0, 1)}</span>
+                    <span className="h-11 w-11 shrink-0 overflow-hidden rounded-full border border-[var(--line)] bg-[var(--wash)] shadow-sm">
+                      <Image src={asset.artwork} alt={`${asset.symbol} 头像`} width={44} height={44} className="h-full w-full object-cover" />
+                    </span>
                     <div><div className="flex items-center gap-2"><h3 className="font-serif text-2xl">{asset.symbol}</h3>{asset.marketCapRank && <span className="rounded-full bg-[var(--wash)] px-2 py-0.5 text-[9px] text-[var(--muted)]">#{asset.marketCapRank}</span>}</div><p className="text-xs text-[var(--muted)]">{asset.name} · {asset.chain}</p></div>
                   </div>
                   <button onClick={() => toggleWatchlist(asset.symbol)} aria-label={`${watchlist.includes(asset.symbol) ? "取消收藏" : "收藏"} ${asset.symbol}`} className={`icon-btn h-9 w-9 ${watchlist.includes(asset.symbol) ? "border-[var(--gold)] text-[var(--gold)]" : ""}`}><Star size={15} fill={watchlist.includes(asset.symbol) ? "currentColor" : "none"} /></button>
@@ -276,7 +279,7 @@ export default function MarketPage() {
                   <div><span className="text-[var(--muted)]">链 TVL</span><strong className="mt-1 block">{asset.tvl > 0 ? compactUsd(asset.tvl) : "不适用"}</strong></div>
                   <div><span className="text-[var(--muted)]">距历史高点</span><strong className={`mt-1 block ${(asset.athChange ?? 0) < -50 ? "text-[var(--muted)]" : ""}`}>{percent(asset.athChange)}</strong></div>
                 </div>
-                <Link href={`/?question=${encodeURIComponent(`结合最新市场数据，分析 ${asset.symbol} 的现货、DeFi 和合约机会，并给出仓位、入场区间、止损与分批计划`)}`} className="mt-6 flex items-center justify-between rounded-xl bg-[var(--panel-soft)] px-4 py-3 text-xs font-semibold text-[var(--green)] transition hover:translate-x-0.5">
+                <Link href={`/?committeePrompt=${encodeURIComponent(`帮我分析一下 ${asset.symbol} 币的趋势`)}`} className="mt-6 flex items-center justify-between rounded-xl bg-[var(--panel-soft)] px-4 py-3 text-xs font-semibold text-[var(--green)] transition hover:translate-x-0.5">
                   <span className="flex items-center gap-2"><Sparkles size={14} />交给 AI 委员会分析</span><ArrowRight size={14} />
                 </Link>
               </article>
@@ -316,7 +319,7 @@ export default function MarketPage() {
               <div className="flex items-center justify-between text-xs"><span className="text-[var(--muted)]">自选资产</span><strong>{watchlist.length} / 6</strong></div>
               <div className="flex items-center justify-between text-xs"><span className="text-[var(--muted)]">数据源</span><strong>{data?.sources.map((source) => source.name).join(" + ") ?? "—"}</strong></div>
             </div>
-            <Link href={`/?question=${encodeURIComponent(`比较 BTC、ETH、SOL、BNB、XRP、DOGE 当前的相对强弱、市场流动性和风险收益，投票选出最值得关注的方向，并给出最终方案`)}`} className="primary-btn mt-7 w-full"><Bot size={15} />发起六币委员会</Link>
+            <Link href={`/?committeePrompt=${encodeURIComponent("帮我分析一下 BTC、ETH、SOL、BNB、XRP、DOGE 六个币的趋势")}`} className="primary-btn mt-7 w-full"><Bot size={15} />交给 AI 委员会分析</Link>
           </aside>
         </div>
       </section>

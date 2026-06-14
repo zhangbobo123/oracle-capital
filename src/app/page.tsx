@@ -2,6 +2,7 @@
 
 import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { createAgentDiscussion, getAgentMasters, streamAgentDiscussion } from "@/lib/agent-api";
 import { masterAvatarPaths } from "@/lib/master-assets";
 import {
@@ -106,6 +107,26 @@ const apiConfigStorageKey = "oracle-capital-api-config";
 const apiKeyDatabase = "oracle-capital-secure";
 const apiKeyStore = "keys";
 const apiKeyId = "developer-api-aes-key";
+const coinArtworkPaths: Record<string, string> = {
+  BTC: "/images/coins/btc.webp",
+  ETH: "/images/coins/eth.webp",
+  SOL: "/images/coins/sol.webp",
+  BNB: "/images/coins/bnb.webp",
+  XRP: "/images/coins/xrp.webp",
+  DOGE: "/images/coins/doge.webp",
+};
+
+function CoinAvatar({ symbol, size = 40 }: { symbol: string; size?: number }) {
+  const artwork = coinArtworkPaths[symbol.toUpperCase()];
+  if (artwork) {
+    return (
+      <span className="shrink-0 overflow-hidden rounded-full border border-[var(--line)] bg-[var(--wash)] shadow-sm" style={{ width: size, height: size }}>
+        <Image src={artwork} alt={`${symbol} 头像`} width={size} height={size} className="h-full w-full object-cover" />
+      </span>
+    );
+  }
+  return <span className="grid shrink-0 place-items-center rounded-full bg-[var(--wash)] text-[10px] font-semibold text-[var(--green)]" style={{ width: size, height: size }}>{symbol.slice(0, 3)}</span>;
+}
 
 const bytesToBase64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
 const base64ToBytes = (value: string) => Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
@@ -451,6 +472,7 @@ export default function Home() {
   const [coboConfig, setCoboConfig] = useState<CoboRuntimeConfig | null>(null);
   const [question, setQuestion] = useState("");
   const [conversationToOpen, setConversationToOpen] = useState("");
+  const [profileMode, setProfileMode] = useState<"simulation" | "wallet">("simulation");
   const [savedConversations, setSavedConversations] = useState<SavedConversation[]>([]);
   const [toast, setToast] = useState("");
   const [preferencesReady, setPreferencesReady] = useState(false);
@@ -558,6 +580,32 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [view]);
 
+  useEffect(() => {
+    if (!preferencesReady) return;
+    const prompt = new URLSearchParams(window.location.search).get("committeePrompt")?.trim();
+    if (!prompt) return;
+    const timer = window.setTimeout(() => {
+      let latest: SavedConversation | undefined;
+      try {
+        const raw = window.localStorage.getItem("oracle-capital-conversations");
+        latest = raw ? (JSON.parse(raw) as SavedConversation[])[0] : undefined;
+      } catch {
+        window.localStorage.removeItem("oracle-capital-conversations");
+      }
+      if (latest) {
+        const validIds = latest.masterIds.filter((id) => masters.some((master) => master.id === id));
+        if (validIds.length) setSelected(validIds);
+        setConversationToOpen(latest.id);
+      } else {
+        setConversationToOpen("");
+      }
+      setQuestion(prompt);
+      setView("chat");
+      window.history.replaceState({}, "", window.location.pathname);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [masters, preferencesReady]);
+
   const t = translations[lang];
   const selectedMasters = masters.filter((master) => selected.includes(master.id));
 
@@ -615,7 +663,7 @@ export default function Home() {
                       <div className="text-xs font-semibold">{wallet ? wallet.label : "Oracle Capital 用户"}</div>
                       <div className="mt-1 truncate text-[10px] text-[var(--muted)]">{wallet ? wallet.address : "本地访客模式"}</div>
                     </div>
-                    <button onClick={() => { setMenuOpen(false); setView("profile"); }} className="topic-row border-0 bg-transparent"><UserRound size={16} /><span className="flex-1 text-left">个人中心</span><ArrowRight size={14} /></button>
+                    <button onClick={() => { setMenuOpen(false); setProfileMode("simulation"); setView("profile"); }} className="topic-row border-0 bg-transparent"><UserRound size={16} /><span className="flex-1 text-left">个人中心</span><ArrowRight size={14} /></button>
                     <button onClick={() => { setMenuOpen(false); setView("home"); window.setTimeout(() => document.getElementById("history")?.scrollIntoView(), 0); }} className="topic-row border-0 bg-transparent"><History size={16} /><span className="flex-1 text-left">历史对话</span><span className="text-[10px] text-[var(--muted)]">{savedConversations.length}</span></button>
                     <Link href="/docs" onClick={() => setMenuOpen(false)} className="topic-row border-0 bg-transparent"><BookOpen size={16} /><span className="flex-1 text-left">产品文档</span><ArrowRight size={14} /></Link>
                     <button onClick={() => { setMenuOpen(false); setApiOpen(true); }} className="topic-row border-0 bg-transparent"><Code2 size={16} /><span className="flex-1 text-left">开发者 API</span><span className={`text-[10px] ${customApi ? "text-[var(--positive)]" : "text-[var(--muted)]"}`}>{customApi ? "已启用" : "平台默认"}</span></button>
@@ -646,8 +694,8 @@ export default function Home() {
           onOpenConversation={openSavedConversation}
         />
       )}
-      {view === "chat" && <ChatView masters={masters} selectedMasters={selectedMasters} initialQuestion={question} initialConversationId={conversationToOpen} onRestoreMasters={setSelected} onBack={() => setView("home")} onOpenSimulation={() => setView("profile")} wallet={wallet} onNeedWallet={() => setWalletOpen(true)} customApi={customApi} notify={setToast} />}
-      {view === "profile" && <ProfileView wallet={wallet} coboConfig={coboConfig} onNeedWallet={() => setWalletOpen(true)} notify={setToast} />}
+      {view === "chat" && <ChatView masters={masters} selectedMasters={selectedMasters} initialQuestion={question} initialConversationId={conversationToOpen} onRestoreMasters={setSelected} onBack={() => setView("home")} onOpenSimulation={() => { setProfileMode("simulation"); setView("profile"); }} onOpenRealWallet={() => { setProfileMode("wallet"); setView("profile"); }} wallet={wallet} onNeedWallet={() => setWalletOpen(true)} customApi={customApi} notify={setToast} />}
+      {view === "profile" && <ProfileView key={profileMode} wallet={wallet} coboConfig={coboConfig} initialMode={profileMode} onNeedWallet={() => setWalletOpen(true)} notify={setToast} />}
       {walletOpen && <WalletModal connected={wallet} onClose={() => setWalletOpen(false)} onConnect={(value, nextCoboConfig) => { setWallet(value); setCoboConfig(nextCoboConfig ?? null); window.localStorage.setItem("oracle-capital-wallet", JSON.stringify(value)); setWalletOpen(false); setToast(`${value.label} 已连接`); }} onDisconnect={() => { setWallet(null); setCoboConfig(null); window.localStorage.removeItem("oracle-capital-wallet"); setWalletOpen(false); setToast("钱包已断开"); }} notify={setToast} />}
       {apiOpen && <DeveloperApiModal current={customApi} onClose={() => setApiOpen(false)} onSave={(config) => { setCustomApi(config); setApiOpen(false); setToast("开发者 API 已加密保存并启用"); }} onRemove={() => { setCustomApi(null); setApiOpen(false); setToast("已恢复平台默认 API"); }} />}
       {toast && <div className="fixed bottom-5 left-1/2 z-[70] -translate-x-1/2 rounded-full bg-[var(--ink)] px-5 py-3 text-xs text-[var(--bg)] shadow-xl">{toast}</div>}
@@ -1049,6 +1097,7 @@ function ChatView({
   onRestoreMasters,
   onBack,
   onOpenSimulation,
+  onOpenRealWallet,
   wallet,
   onNeedWallet,
   customApi,
@@ -1061,6 +1110,7 @@ function ChatView({
   onRestoreMasters: (masterIds: string[]) => void;
   onBack: () => void;
   onOpenSimulation: () => void;
+  onOpenRealWallet: () => void;
   wallet: ConnectedWallet | null;
   onNeedWallet: () => void;
   customApi: CustomApiConfig | null;
@@ -1303,7 +1353,7 @@ function ChatView({
               </div>
             );
           })}
-          {loading && <div className="flex items-center gap-3 text-sm text-[var(--muted)]"><LoaderCircle className="animate-spin" size={18} />{customApi ? customApi.model : "DeepSeek"} 正在组织不同大师的观点...</div>}
+          {loading && <div className="flex items-center gap-3 text-sm text-[var(--muted)]"><LoaderCircle className="animate-spin" size={18} />大师们正在讨论...</div>}
 
           {showPlan && decision && !preview && (
             <div className="plan-card">
@@ -1319,7 +1369,7 @@ function ChatView({
                 {[["赞成", decision.voteCounts.approve, "text-emerald-600"], ["保留", decision.voteCounts.abstain, "text-amber-600"], ["反对", decision.voteCounts.reject, "text-red-500"]].map(([label, value, color]) => <div key={String(label)} className="rounded-lg bg-[var(--panel-soft)] p-3 text-center"><div className={`font-serif text-xl ${color}`}>{value}</div><div className="text-[10px] text-[var(--muted)]">{label}票</div></div>)}
               </div>
               <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                {decision.allocations.map((item) => <div key={item.label} className="rounded-lg border border-[var(--line)] p-3"><div className="flex items-center justify-between"><span className="text-xs font-semibold">{item.label}</span><span className="font-serif text-xl">{item.percentage}%</span></div><p className="mt-2 text-[10px] leading-5 text-[var(--muted)]">{item.rationale}</p></div>)}
+                {decision.allocations.map((item) => <div key={item.label} className="rounded-lg border border-[var(--line)] p-3"><div className="flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><CoinAvatar symbol={inferAllocationSymbol(item.label)} size={34} /><span className="truncate text-xs font-semibold">{item.label}</span></div><span className="font-serif text-xl">{item.percentage}%</span></div><p className="mt-2 text-[10px] leading-5 text-[var(--muted)]">{item.rationale}</p></div>)}
               </div>
               <div className="mt-4 rounded-lg bg-[var(--panel-soft)] p-4 text-xs leading-6"><strong>主要分歧：</strong>{decision.dissent}</div>
               <div className="mt-4 grid gap-3 text-xs sm:grid-cols-3"><div><span className="text-[var(--muted)]">风险等级</span><strong className="mt-1 block">{decision.riskLevel}</strong></div><div><span className="text-[var(--muted)]">收益判断</span><strong className="mt-1 block">{decision.expectedReturn}</strong></div><div><span className="text-[var(--muted)]">压力回撤</span><strong className="mt-1 block">{decision.maxDrawdown}</strong></div></div>
@@ -1327,6 +1377,12 @@ function ChatView({
               <div className="mt-6 flex flex-col gap-2 sm:flex-row">
                 <button className="primary-btn flex-1" onClick={() => setPreview(true)} disabled={Boolean(decision.executedAt)}>
                   <CircleDollarSign size={16} /> {decision.executedAt ? "方案已执行" : "预览模拟执行"}
+                </button>
+                <button
+                  onClick={() => wallet ? onOpenRealWallet() : onNeedWallet()}
+                  className="secondary-btn flex-1"
+                >
+                  <Wallet size={16} /> {wallet ? "真实交易" : "连接钱包交易"}
                 </button>
                 <button onClick={() => setEditing(!editing)} className="secondary-btn flex-1">{editing ? "收起投票说明" : "查看投票机制"}</button>
               </div>
@@ -1538,17 +1594,19 @@ type WalletBalance = {
 function ProfileView({
   wallet,
   coboConfig,
+  initialMode,
   onNeedWallet,
   notify,
 }: {
   wallet: ConnectedWallet | null;
   coboConfig: CoboRuntimeConfig | null;
+  initialMode: "simulation" | "wallet";
   onNeedWallet: () => void;
   notify: (message: string) => void;
 }) {
   const [hidden, setHidden] = useState(true);
   const [showAll, setShowAll] = useState(false);
-  const [mode, setMode] = useState<"simulation" | "wallet">("simulation");
+  const [mode, setMode] = useState<"simulation" | "wallet">(initialMode);
   const [account, setAccount] = useState<SimulationAccount>({
     positions: [{ id: "ethereum-usdc", label: "USD Coin", symbol: "USDC", chain: "Ethereum", value: 10000, costBasis: 10000, rationale: "默认模拟资产与策略结算资金" }],
     transactions: [],
@@ -1805,7 +1863,7 @@ function ProfileView({
       </div>
       <div className="mt-4 stat-card">
         <div className="flex items-center justify-between"><div><h2 className="font-serif text-xl">模拟持仓明细</h2><p className="mt-1 text-[10px] text-[var(--muted)]">AI 方案执行后自动更新</p></div><span className="rounded-full bg-[var(--wash)] px-3 py-1 text-[10px]">{account.positions.length} 项资产</span></div>
-        <div className="mt-5 overflow-x-auto"><div className="min-w-[760px]"><div className="grid grid-cols-[1.3fr_.8fr_.8fr_.8fr_1.1fr_1.3fr] border-b border-[var(--line)] pb-3 text-[10px] text-[var(--muted)]"><span>资产</span><span>网络</span><span>价值</span><span>占比</span><span>来源策略</span><span>配置逻辑</span></div>{[...account.positions].sort((a, b) => b.value - a.value).map((position) => <div key={position.id} className="grid grid-cols-[1.3fr_.8fr_.8fr_.8fr_1.1fr_1.3fr] items-center border-b border-[var(--line)] py-4 text-xs last:border-0"><div><strong>{position.symbol}</strong><span className="mt-1 block text-[10px] text-[var(--muted)]">{position.label}</span></div><span>{position.chain}</span><span>${position.value.toLocaleString("en-US", { maximumFractionDigits: 2 })}</span><span>{totalValue ? (position.value / totalValue * 100).toFixed(1) : "0.0"}%</span><span className="truncate text-[10px] text-[var(--muted)]">{position.sourceStrategy ? `${position.sourceStrategy}${position.sourceExecutedAt ? ` · ${new Date(position.sourceExecutedAt).toLocaleDateString("zh-CN")}` : ""}` : "初始资金"}</span><span className="truncate text-[10px] text-[var(--muted)]">{position.rationale}</span></div>)}</div></div>
+        <div className="mt-5 overflow-x-auto"><div className="min-w-[760px]"><div className="grid grid-cols-[1.3fr_.8fr_.8fr_.8fr_1.1fr_1.3fr] border-b border-[var(--line)] pb-3 text-[10px] text-[var(--muted)]"><span>资产</span><span>网络</span><span>价值</span><span>占比</span><span>来源策略</span><span>配置逻辑</span></div>{[...account.positions].sort((a, b) => b.value - a.value).map((position) => <div key={position.id} className="grid grid-cols-[1.3fr_.8fr_.8fr_.8fr_1.1fr_1.3fr] items-center border-b border-[var(--line)] py-4 text-xs last:border-0"><div className="flex items-center gap-3"><CoinAvatar symbol={position.symbol} size={38} /><div><strong>{position.symbol}</strong><span className="mt-1 block text-[10px] text-[var(--muted)]">{position.label}</span></div></div><span>{position.chain}</span><span>${position.value.toLocaleString("en-US", { maximumFractionDigits: 2 })}</span><span>{totalValue ? (position.value / totalValue * 100).toFixed(1) : "0.0"}%</span><span className="truncate text-[10px] text-[var(--muted)]">{position.sourceStrategy ? `${position.sourceStrategy}${position.sourceExecutedAt ? ` · ${new Date(position.sourceExecutedAt).toLocaleDateString("zh-CN")}` : ""}` : "初始资金"}</span><span className="truncate text-[10px] text-[var(--muted)]">{position.rationale}</span></div>)}</div></div>
       </div>
       <div className="mt-4 stat-card">
         <div className="flex items-center justify-between"><h2 className="font-serif text-xl">模拟资金流水</h2><button onClick={() => setShowAll(!showAll)} className="text-xs text-[var(--green)]">{showAll ? "收起" : "查看全部"}</button></div>
@@ -1814,9 +1872,20 @@ function ProfileView({
         </div>
       </div>
       </> : <>
-        <div className="mt-8 plan-card">
+        <div className="mt-8 rounded-2xl border border-[var(--line)] bg-[var(--green)] p-6 text-[var(--bg)] shadow-xl">
+          <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+            <div><div className="text-[10px] tracking-[0.18em] opacity-70">REAL WALLET PORTFOLIO</div><div className={`mt-3 font-serif text-4xl ${hidden ? "blur-md select-none" : ""}`}>{wallet ? walletBalances.length ? `${walletBalances.length} 项资产` : "等待读取" : "未连接"}</div><div className="mt-2 text-xs opacity-70">{wallet ? `${wallet.label} · ${shortAddress(wallet.address)}` : "连接钱包后读取真实链上资产"}</div></div>
+            <div className="grid grid-cols-2 gap-6 text-xs md:grid-cols-3"><div><span className="opacity-60">资产数量</span><strong className="mt-1 block text-base">{walletBalances.length}</strong></div><div><span className="opacity-60">活跃网络</span><strong className="mt-1 block text-base">{new Set(walletBalances.map((item) => item.chain)).size}</strong></div><div><span className="opacity-60">委员会策略</span><strong className="mt-1 block text-base">{account.executedStrategies.length}</strong></div></div>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <button onClick={() => wallet ? void navigator.clipboard?.writeText(wallet.address).then(() => notify("收款地址已复制")) : onNeedWallet()} className="stat-card flex items-center gap-4 text-left"><span className="grid h-12 w-12 place-items-center rounded-full bg-[var(--wash)]"><ArrowDownToLine size={20} /></span><span><strong>真实充值</strong><span className="mt-1 block text-xs text-[var(--muted)]">{wallet ? "复制当前钱包收款地址" : "连接钱包后获取地址"}</span></span></button>
+          <button onClick={() => wallet ? notify("请在钱包中发起转账并确认网络、地址与手续费") : onNeedWallet()} className="stat-card flex items-center gap-4 text-left"><span className="grid h-12 w-12 place-items-center rounded-full bg-[var(--wash)]"><ArrowUpFromLine size={20} /></span><span><strong>真实提现</strong><span className="mt-1 block text-xs text-[var(--muted)]">通过已连接钱包安全发送资产</span></span></button>
+          <button onClick={() => notify(account.executedStrategies.length ? "下方已展示可用于真实交易的委员会策略" : "先在委员会对话中生成并确认一份投资方案")} className="stat-card flex items-center gap-4 text-left"><span className="grid h-12 w-12 place-items-center rounded-full bg-[var(--wash)]"><Sparkles size={20} /></span><span><strong>AI 策略</strong><span className="mt-1 block text-xs text-[var(--muted)]">查看委员会方案并进入真实交易</span></span></button>
+        </div>
+        <div className="mt-4 plan-card">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center"><div><div className="section-label">真实链上钱包</div><h2 className="mt-2 font-serif text-2xl">{wallet ? `${wallet.label} ${shortAddress(wallet.address)}` : "尚未连接钱包"}</h2><p className="mt-2 text-[10px] text-[var(--muted)]">{wallet?.kind === "cobo" ? `Hermes Agent: ${coboConfig?.baseUrl ?? wallet.endpoint ?? "未记录"}` : "浏览器插件钱包模式"}</p></div>{wallet ? <button onClick={() => void loadPortfolio()} disabled={portfolioLoading} className="secondary-btn"><RefreshCw className={portfolioLoading ? "animate-spin" : ""} size={15} />刷新余额</button> : <button onClick={onNeedWallet} className="primary-btn"><Wallet size={15} />连接钱包</button>}</div>
-          {wallet && <div className="mt-6 grid gap-3 md:grid-cols-2">{walletBalances.length ? walletBalances.map((balance) => <div key={`${balance.chain}-${balance.symbol}`} className="rounded-xl bg-[var(--panel-soft)] p-4"><div className="text-xs text-[var(--muted)]">{balance.chain}</div><div className={`mt-2 font-mono text-2xl ${hidden ? "blur-md select-none" : ""}`}>{balance.balance.toLocaleString("en-US", { maximumFractionDigits: 6 })} {balance.symbol}</div></div>) : <div className="text-sm text-[var(--muted)]">{portfolioLoading ? "正在读取链上余额..." : "点击刷新读取余额"}</div>}</div>}
+          {wallet && <div className="mt-6 grid gap-3 md:grid-cols-2">{walletBalances.length ? walletBalances.map((balance) => <div key={`${balance.chain}-${balance.symbol}`} className="flex items-center gap-4 rounded-xl bg-[var(--panel-soft)] p-4"><CoinAvatar symbol={balance.symbol} size={46} /><div><div className="text-xs text-[var(--muted)]">{balance.chain}</div><div className={`mt-2 font-mono text-2xl ${hidden ? "blur-md select-none" : ""}`}>{balance.balance.toLocaleString("en-US", { maximumFractionDigits: 6 })} {balance.symbol}</div></div></div>) : <div className="text-sm text-[var(--muted)]">{portfolioLoading ? "正在读取链上余额..." : "点击刷新读取余额"}</div>}</div>}
         </div>
         {wallet?.kind === "cobo" && (
           <div className="mt-4 plan-card">
@@ -1840,9 +1909,21 @@ function ProfileView({
             <p className="mt-2 text-[10px] text-[var(--muted)]">{coboAuthReady ? `已完成授权${coboRequestId ? `，请求号：${coboRequestId}` : ""}` : "尚未授权。请先完成第 1 步。"}</p>
           </div>
         )}
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <div className="stat-card"><ArrowDownToLine className="text-[var(--gold)]" /><h3 className="mt-5 font-serif text-xl">真实充值</h3><p className="mt-2 text-xs leading-6 text-[var(--muted)]">{wallet ? `从交易所或其他钱包转账到：${shortAddress(wallet.address)}` : "连接钱包后显示你的链上收款地址。"}</p>{wallet && <button onClick={() => { void navigator.clipboard?.writeText(wallet.address); notify("收款地址已复制"); }} className="secondary-btn mt-5 w-full">复制收款地址</button>}</div>
-          <div className="stat-card"><ArrowUpFromLine className="text-[var(--gold)]" /><h3 className="mt-5 font-serif text-xl">真实提现</h3><p className="mt-2 text-xs leading-6 text-[var(--muted)]">非托管模式下，资产始终在你的钱包里，可随时通过钱包发送。平台尚未部署可审计的收费金库，因此不会伪造收取 0.01% 手续费。</p><button onClick={() => notify("真实收费提现需要部署审计金库合约后启用")} className="secondary-btn mt-5 w-full">金库通道待启用</button></div>
+        <div className="mt-4 stat-card">
+          <div className="flex items-center justify-between"><div><h2 className="font-serif text-xl">委员会策略</h2><p className="mt-1 text-[10px] text-[var(--muted)]">已确认的方案可作为真实交易执行清单</p></div><span className="rounded-full bg-[var(--wash)] px-3 py-1 text-[10px]">{account.executedStrategies.length} 个方案</span></div>
+          <div className="mt-5 divide-y divide-[var(--line)]">
+            {account.executedStrategies.length ? account.executedStrategies.map((strategy) => <div key={strategy.id} className="flex flex-wrap items-center justify-between gap-3 py-4"><div><strong className="text-sm">{strategy.title}</strong><p className="mt-1 text-[10px] text-[var(--muted)]">共识率 {strategy.consensusRate}% · 风险 {strategy.riskLevel} · {strategy.allocations.length} 项配置</p></div><button onClick={() => wallet?.kind === "cobo" ? notify("请在上方 Cobo 授权区核对策略参数后执行") : notify("浏览器钱包真实交易需要逐笔确认代币、网络、合约地址和滑点")} className="secondary-btn">真实交易</button></div>) : <p className="py-5 text-sm text-[var(--muted)]">暂无委员会策略。请先在对话中生成方案。</p>}
+          </div>
+        </div>
+        <div className="mt-4 stat-card">
+          <div className="flex items-center justify-between"><div><h2 className="font-serif text-xl">真实持仓</h2><p className="mt-1 text-[10px] text-[var(--muted)]">直接读取当前钱包公开链上余额</p></div><span className="rounded-full bg-[var(--wash)] px-3 py-1 text-[10px]">{walletBalances.length} 项资产</span></div>
+          <div className="mt-5 divide-y divide-[var(--line)]">
+            {walletBalances.length ? walletBalances.map((balance) => <div key={`holding-${balance.chain}-${balance.symbol}`} className="flex items-center gap-4 py-4"><CoinAvatar symbol={balance.symbol} size={40} /><div className="flex-1"><strong>{balance.symbol}</strong><span className="mt-1 block text-[10px] text-[var(--muted)]">{balance.chain}</span></div><span className={`font-mono text-sm ${hidden ? "blur-sm select-none" : ""}`}>{balance.balance.toLocaleString("en-US", { maximumFractionDigits: 6 })}</span></div>) : <p className="py-5 text-sm text-[var(--muted)]">{wallet ? "刷新余额后展示真实持仓。" : "连接钱包后展示真实持仓。"}</p>}
+          </div>
+        </div>
+        <div className="mt-4 stat-card">
+          <div className="flex items-center justify-between"><div><h2 className="font-serif text-xl">链上资金流水</h2><p className="mt-1 text-[10px] text-[var(--muted)]">充值、提现和策略成交记录</p></div><History size={17} className="text-[var(--gold)]" /></div>
+          <p className="mt-5 rounded-xl bg-[var(--panel-soft)] p-4 text-sm leading-6 text-[var(--muted)]">{wallet ? "当前 RPC 仅提供余额读取。接入区块链索引器后，这里将按钱包地址展示真实交易哈希、方向、金额、网络和状态，不会用模拟数据冒充真实流水。" : "连接钱包后可读取对应地址的链上资金流水。"}</p>
         </div>
       </>}
     </div>

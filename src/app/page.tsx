@@ -1296,7 +1296,7 @@ function ChatView({
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold">{master.name}</span>
                     <span className="text-[10px] text-[var(--muted)]">{master.school}</span>
-                    {message.vote && <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${message.vote === "approve" ? "bg-emerald-500/10 text-emerald-600" : message.vote === "reject" ? "bg-red-500/10 text-red-500" : "bg-amber-500/10 text-amber-600"}`}>{message.vote === "approve" ? "赞成" : message.vote === "reject" ? "反对" : "保留"} · {message.confidence}%</span>}
+                    {message.vote && <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${message.vote === "approve" ? "bg-emerald-500/10 text-emerald-600" : message.vote === "reject" ? "bg-red-500/10 text-red-500" : "bg-amber-500/10 text-amber-600"}`}>{message.vote === "approve" ? "赞成" : message.vote === "reject" ? "反对" : "保留"}</span>}
                   </div>
                   <p className="whitespace-pre-wrap text-sm leading-7 text-[var(--ink-soft)]">{message.content}</p>
                 </div>

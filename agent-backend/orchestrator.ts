@@ -65,7 +65,7 @@ function buildDemoOpinion(master: MasterProfile, question: string, feedbackNotes
   return {
     masterId: master.id,
     stance: master.riskBias === "aggressive" ? "bullish" : "neutral",
-    summary: `我先给结论：面对“${question}”这个问题，我会先确认仓位边界、催化剂和你的风险承受能力。${feedback}在信息不足时，我不建议你一步到位重仓。`,
+    summary: `我先给结论：面对“${question}”这个问题，我只会在链上资产范围内评估仓位边界、催化剂和你的风险承受能力。${feedback}在信息不足时，我不建议你一步到位重仓。`,
     thesis: [
       "我会先沿着这套完整 skill 里的核心分析顺序展开判断",
       "我会按这套 skill 的决策规则来决定现在该不该行动",
@@ -79,8 +79,8 @@ function buildDemoOpinion(master: MasterProfile, question: string, feedbackNotes
       "用户可承受回撤与目标收益",
     ],
     suggestedActions: [
-      "先给出试探性小仓位方案",
-      "补充数据后再决定是否升级为正式计划",
+      "先给出链上试探性小仓位方案",
+      "补充数据后再决定是否升级为正式的链上配置计划",
     ],
     vote: "abstain",
     confidence: 58,

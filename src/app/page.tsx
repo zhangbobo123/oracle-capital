@@ -1653,10 +1653,6 @@ function loadRealTrades(): RealTradeRecord[] {
   }
 }
 
-function saveRealTrades(records: RealTradeRecord[]) {
-  window.localStorage.setItem(realTradesStorageKey, JSON.stringify(records.slice(0, 50)));
-}
-
 function eventTimestamp() {
   return Date.now();
 }
@@ -1694,6 +1690,7 @@ function ProfileView({
   const [pendingRealStrategy, setPendingRealStrategy] = useState<ExecutedStrategy | null>(null);
   const [realTradeStrategyId, setRealTradeStrategyId] = useState("");
   const [realTradeAmount, setRealTradeAmount] = useState("");
+  const [realTradeInstruction, setRealTradeInstruction] = useState("");
   const [realTradeOpen, setRealTradeOpen] = useState(false);
   const [realTradeRunning, setRealTradeRunning] = useState(false);
   const [coboAction, setCoboAction] = useState("transfer");
@@ -1754,14 +1751,6 @@ function ProfileView({
     : account.executedStrategies;
   const selectedRealStrategy = realTradeStrategies.find((strategy) => strategy.id === realTradeStrategyId);
 
-  const persistRealTrade = (record: RealTradeRecord) => {
-    setRealTrades((current) => {
-      const next = [record, ...current.filter((item) => item.id !== record.id)];
-      saveRealTrades(next);
-      return next;
-    });
-  };
-
   const openRealTrade = (strategyId: string) => {
     if (!wallet) {
       onNeedWallet();
@@ -1769,80 +1758,36 @@ function ProfileView({
     }
     setRealTradeStrategyId(strategyId);
     setRealTradeAmount("");
+    setRealTradeInstruction("");
     setRealTradeOpen(true);
   };
 
   const executeRealTrade = async () => {
-    if (!wallet || !selectedRealStrategy) return;
+    if (!selectedRealStrategy) return;
     const amountUsd = Number(realTradeAmount);
     if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
       notify("请输入有效的 USD 交易金额");
       return;
     }
-    const startedAt = eventTimestamp();
-    const record: RealTradeRecord = {
-      id: crypto.randomUUID(),
-      strategyId: selectedRealStrategy.id,
-      strategyTitle: selectedRealStrategy.title,
-      chain: portfolioChain,
-      amountUsd,
-      status: "pending",
-      createdAt: startedAt,
-      updatedAt: startedAt,
-    };
-    persistRealTrade(record);
     setRealTradeRunning(true);
     try {
-      if (wallet.kind !== "cobo" || (!coboConfig && !wallet.configPath)) {
-        throw new Error("当前钱包未配置可执行的交易路由。请连接 Cobo Agent，或等待接入已审计的 DEX 聚合器。");
-      }
-      const configPayload = coboConfig ? { config: coboConfig } : { configPath: wallet.configPath };
-      const instruction = [
-        `请在${portfolioChains.find((chain) => chain.id === portfolioChain)?.label ?? portfolioChain}为当前钱包执行真实交易。`,
-        `策略名称：${selectedRealStrategy.title}。`,
-        `总金额：${amountUsd.toFixed(2)} USD。`,
-        `配置明细：${selectedRealStrategy.allocations.map((allocation) => `${allocation.label} ${allocation.percentage}%`).join("；")}。`,
-        "请按你的交易路由完成下单并返回 request_id、tx_hash（如有）和执行结果。",
-      ].join(" ");
-
-      const executeResponse = await fetch("/api/cobo/execute", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...configPayload,
-          operation: {
-            action: "hermes_command",
-            chain: portfolioChain,
-            amountUsd,
-            strategyId: selectedRealStrategy.id,
-            strategyTitle: selectedRealStrategy.title,
-            allocations: selectedRealStrategy.allocations,
-            instruction,
-          },
-        }),
-      });
-      const execution = await executeResponse.json() as { ok?: boolean; txId?: string; requestId?: string; error?: string; message?: string };
-      if (!executeResponse.ok || execution.ok === false) {
-        throw new Error(execution.error || execution.message || "Hermes 执行失败");
-      }
-
-      const executed = {
-        ...record,
-        status: "executed" as const,
-        txId: execution.txId || execution.requestId || undefined,
-        updatedAt: eventTimestamp(),
-      };
-      persistRealTrade(executed);
-      if (pendingRealStrategy?.id === selectedRealStrategy.id) {
-        window.localStorage.removeItem(pendingRealStrategyStorageKey);
-        setPendingRealStrategy(null);
-      }
-      setRealTradeOpen(false);
-      notify(execution.txId ? `真实策略已提交：${execution.txId}` : (execution.message || "真实策略指令已发送到 Hermes"));
-      await loadPortfolio();
+      const chainLabel = portfolioChains.find((chain) => chain.id === portfolioChain)?.label ?? portfolioChain;
+      const walletHint = wallet ? `${wallet.label} ${wallet.address}` : "未连接钱包";
+      const command = [
+        "[ORACLE_CAPITAL_HERMES_COMMAND]",
+        `chain: ${chainLabel}`,
+        `wallet: ${walletHint}`,
+        `strategy_id: ${selectedRealStrategy.id}`,
+        `strategy_title: ${selectedRealStrategy.title}`,
+        `amount_usd: ${amountUsd.toFixed(2)}`,
+        "allocations:",
+        ...selectedRealStrategy.allocations.map((allocation) => `- ${allocation.label}: ${allocation.percentage}% (~$${(amountUsd * allocation.percentage / 100).toFixed(2)})`),
+        "instruction: 请按上述策略执行真实交易，完成后返回 request_id、tx_hash（如有）与执行结果。",
+      ].join("\n");
+      setRealTradeInstruction(command);
+      notify("指令已生成，请复制并发送给 Hermes");
     } catch (error) {
-      const failureReason = error instanceof Error ? error.message : "未知执行错误";
-      persistRealTrade({ ...record, status: "failed", failureReason, updatedAt: eventTimestamp() });
+      const failureReason = error instanceof Error ? error.message : "未知错误";
       notify(failureReason);
     } finally {
       setRealTradeRunning(false);
@@ -2341,8 +2286,15 @@ function ProfileView({
               <div className="flex items-start justify-between gap-4"><div><div className="section-label"><Wallet size={14} /> 真实策略执行</div><h3 className="mt-3 font-serif text-2xl">{selectedRealStrategy.title}</h3><p className="mt-2 text-xs text-[var(--muted)]">{portfolioChains.find((chain) => chain.id === portfolioChain)?.label} · 共识率 {selectedRealStrategy.consensusRate}% · 风险 {selectedRealStrategy.riskLevel}</p></div><button disabled={realTradeRunning} onClick={() => setRealTradeOpen(false)} className="icon-btn"><X size={16} /></button></div>
               <div className="mt-5 grid gap-2 sm:grid-cols-2">{selectedRealStrategy.allocations.map((allocation) => <div key={allocation.label} className="rounded-lg bg-[var(--panel-soft)] p-3"><div className="flex items-center justify-between gap-2 text-xs"><span className="truncate">{allocation.label}</span><strong>{allocation.percentage}%</strong></div><p className="mt-1 text-[10px] text-[var(--muted)]">{realTradeAmount && Number(realTradeAmount) > 0 ? `$${(Number(realTradeAmount) * allocation.percentage / 100).toFixed(2)}` : "等待输入金额"}</p></div>)}</div>
               <div className="mt-5 rounded-xl border border-[var(--line)] p-4"><label className="text-[10px] text-[var(--muted)]">真实交易金额（USD）</label><input value={realTradeAmount} onChange={(event) => setRealTradeAmount(event.target.value)} disabled={realTradeRunning} inputMode="decimal" placeholder="例如 1000" className="mt-2 w-full bg-transparent font-mono text-2xl outline-none" /><p className="mt-2 text-[10px] text-[var(--muted)]">当前钱包估值：${realPortfolioUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}</p></div>
-              <div className="mt-5 rounded-lg bg-[var(--panel-soft)] p-3 text-[10px] leading-5 text-[var(--muted)]">{wallet?.kind === "cobo" ? "确认后前端会把策略整理成一句自然语言指令发送给 Hermes，由 Hermes 完成真实下单并回传 request_id / tx_hash（如有）。" : "当前浏览器钱包尚未接入已审计的 DEX 聚合器。确认后会保存失败状态及原因，不会伪造链上成交。"}</div>
-              <button disabled={realTradeRunning || !realTradeAmount.trim()} onClick={() => void executeRealTrade()} className="primary-btn mt-5 w-full">{realTradeRunning ? <LoaderCircle className="animate-spin" size={16} /> : <CircleDollarSign size={16} />}{realTradeRunning ? "正在授权并执行..." : "确认真实执行"}</button>
+              <div className="mt-5 rounded-lg bg-[var(--panel-soft)] p-3 text-[10px] leading-5 text-[var(--muted)]">确认后会生成一条可复制文本指令，你可以直接发给 Hermes 执行真实交易。</div>
+              {realTradeInstruction && (
+                <div className="mt-4 rounded-xl border border-[var(--line)] p-3">
+                  <p className="text-[10px] text-[var(--muted)]">发送给 Hermes 的指令</p>
+                  <textarea readOnly value={realTradeInstruction} rows={10} className="mt-2 w-full resize-none bg-transparent font-mono text-xs outline-none" />
+                  <button onClick={() => void navigator.clipboard?.writeText(realTradeInstruction).then(() => notify("指令已复制"))} className="secondary-btn mt-3 w-full">复制指令</button>
+                </div>
+              )}
+              <button disabled={realTradeRunning || !realTradeAmount.trim()} onClick={() => void executeRealTrade()} className="primary-btn mt-5 w-full">{realTradeRunning ? <LoaderCircle className="animate-spin" size={16} /> : <CircleDollarSign size={16} />}{realTradeRunning ? "生成中..." : "确认并生成指令"}</button>
             </div>
           </div>
         )}

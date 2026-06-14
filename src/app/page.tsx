@@ -1771,19 +1771,18 @@ function ProfileView({
     }
     setRealTradeRunning(true);
     try {
-      const chainLabel = portfolioChains.find((chain) => chain.id === portfolioChain)?.label ?? portfolioChain;
-      const walletHint = wallet ? `${wallet.label} ${wallet.address}` : "未连接钱包";
-      const command = [
-        "[ORACLE_CAPITAL_HERMES_COMMAND]",
-        `chain: ${chainLabel}`,
-        `wallet: ${walletHint}`,
-        `strategy_id: ${selectedRealStrategy.id}`,
-        `strategy_title: ${selectedRealStrategy.title}`,
-        `amount_usd: ${amountUsd.toFixed(2)}`,
-        "allocations:",
-        ...selectedRealStrategy.allocations.map((allocation) => `- ${allocation.label}: ${allocation.percentage}% (~$${(amountUsd * allocation.percentage / 100).toFixed(2)})`),
-        "instruction: 请按上述策略执行真实交易，完成后返回 request_id、tx_hash（如有）与执行结果。",
-      ].join("\n");
+      const commands = selectedRealStrategy.allocations
+        .map((allocation) => {
+          const symbol = inferAllocationSymbol(allocation.label);
+          const instructionSymbol = portfolioChain === "bsc"
+            ? symbol === "BTC" ? "BBTC" : symbol === "ETH" ? "BETH" : symbol
+            : symbol;
+          const legAmount = amountUsd * allocation.percentage / 100;
+          return { symbol: instructionSymbol, legAmount };
+        })
+        .filter((item) => item.legAmount > 0.01)
+        .map((item) => `买入 ${item.legAmount.toFixed(2)}U 的 ${item.symbol}`);
+      const command = commands.length ? commands.join("\n") : "无可执行配置";
       setRealTradeInstruction(command);
       notify("指令已生成，请复制并发送给 Hermes");
     } catch (error) {

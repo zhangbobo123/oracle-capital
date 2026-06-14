@@ -88,25 +88,22 @@
 
 参数：
 
-- `kind=evm|solana`
 - `address=公开钱包地址`
+- `chain=ethereum|bsc|solana`
 
-EVM：
+索引策略：
 
-- 校验 `0x` + 40 位十六进制。
-- Ethereum PublicNode 读取 ETH。
-- BSC PublicNode 读取 BNB。
-
-Solana：
-
-- 校验 Base58 地址格式。
-- RPC 回退顺序：Solana 官方、PublicNode、Ankr。
-- 单节点 8 秒超时。
+- 配置 `ALCHEMY_API_KEY` 时，优先使用 Alchemy Portfolio API 返回原生币、ERC-20、SPL Token、元数据和美元价格。
+- 未配置或 Alchemy 暂不可用时，Ethereum/BSC 使用 Blockscout Indexer 枚举 Token，并通过公共 RPC 补充原生币。
+- Solana 降级模式通过 `getTokenAccountsByOwner` 枚举全部 SPL Token 账户，并通过公共 RPC 读取 SOL。
+- 返回 `source`、`indexed`、`updatedAt`，前端可切换 Ethereum、BNB Chain、Solana 主链。
+- EVM 地址只能读取 Ethereum/BNB Chain，Solana 地址只能读取 Solana。
 
 ## 环境变量
 
 ```bash
 DEEPSEEK_API_KEY=...
+ALCHEMY_API_KEY=...
 ```
 
 密钥不得提交 GitHub。生产环境通过 Vercel 环境变量配置。
